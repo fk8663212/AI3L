@@ -1,0 +1,110 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import {
+  addCustomModel,
+  generateAccessCodes,
+  overrideSessionStage,
+  publishTask,
+  saveProviderCredential,
+  saveTaskDraft,
+  testStoredProvider,
+} from "@/lib/services/admin-service";
+import {
+  apiErrorResponse,
+  ApiError,
+  assertSameOrigin,
+} from "@/lib/security/request";
+import { getAdminClaims } from "@/lib/security/session";
+import { STAGE_IDS } from "@/lib/domain/stages";
+
+const providerSchema = z.enum(["openai", "google"]);
+const bodySchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("save_provider"),
+    provider: providerSchema,
+    displayName: z.string().min(1).max(80),
+    apiKey: z.string().min(8).max(512),
+    modelId: z.string().min(1).max(120),
+  }),
+  z.object({
+    action: z.literal("test_provider"),
+    provider: providerSchema,
+    modelId: z.string().min(1).max(120),
+  }),
+  z.object({
+    action: z.literal("add_model"),
+    provider: providerSchema,
+    modelId: z.string().min(1).max(120),
+    displayName: z.string().min(1).max(120),
+    image: z.boolean(),
+    audio: z.boolean(),
+  }),
+  z.object({
+    action: z.literal("save_task"),
+    id: z.string().uuid().optional(),
+    title: z.string().min(2).max(180),
+    slug: z
+      .string()
+      .min(3)
+      .max(120)
+      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+    description: z.string().min(10).max(2_000),
+    provider: providerSchema,
+    modelId: z.string().min(1).max(120),
+    retentionDays: z.number().int().min(1).max(3_650),
+  }),
+  z.object({
+    action: z.literal("publish_task"),
+    taskId: z.string().uuid(),
+  }),
+  z.object({
+    action: z.literal("generate_codes"),
+    taskId: z.string().uuid(),
+    count: z.number().int().min(1).max(500),
+  }),
+  z.object({
+    action: z.literal("override_stage"),
+    sessionId: z.string().uuid(),
+    stageId: z.enum(STAGE_IDS),
+    reason: z.string().min(5).max(500),
+  }),
+]);
+
+export async function POST(request: Request) {
+  try {
+    assertSameOrigin(request);
+    if (!(await getAdminClaims())) {
+      throw new ApiError(401, "UNAUTHORIZED", "請先登入管理後台。");
+    }
+    const body = bodySchema.parse(await request.json());
+    let data: unknown = null;
+
+    switch (body.action) {
+      case "save_provider":
+        data = await saveProviderCredential(body);
+        break;
+      case "test_provider":
+        data = await testStoredProvider(body.provider, body.modelId);
+        break;
+      case "add_model":
+        await addCustomModel(body);
+        break;
+      case "save_task":
+        data = { id: await saveTaskDraft(body) };
+        break;
+      case "publish_task":
+        await publishTask(body.taskId);
+        break;
+      case "generate_codes":
+        data = { codes: await generateAccessCodes(body.taskId, body.count) };
+        break;
+      case "override_stage":
+        await overrideSessionStage(body);
+        break;
+    }
+
+    return NextResponse.json({ ok: true, data });
+  } catch (error) {
+    return apiErrorResponse(error);
+  }
+}
