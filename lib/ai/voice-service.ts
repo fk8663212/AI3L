@@ -5,7 +5,12 @@ import {
   transcribeAudio,
 } from "@/lib/ai/provider";
 import { taskAIContext } from "@/lib/ai/provider-service";
-import { speechEvaluationPrompt } from "@/lib/ai/prompts";
+import {
+  OPENAI_TRANSCRIPTION_PROMPT,
+  SPEECH_EVALUATION_SYSTEM_PROMPT,
+  speechEvaluationPrompt,
+  speechTranscriptionPrompt,
+} from "@/lib/ai/prompts";
 import { speechEvaluationSchema } from "@/lib/ai/schemas";
 import { getDb } from "@/lib/db/client";
 import { aiRuns } from "@/lib/db/schema";
@@ -82,7 +87,10 @@ export async function analyzeRecording(input: {
     context.provider === "openai"
       ? OPENAI_TRANSCRIPTION_MODEL
       : context.task.modelId;
-  const transcriptionPrompt = `faithful-en-transcript:${input.durationSeconds}`;
+  const transcriptionPrompt =
+    context.provider === "openai"
+      ? OPENAI_TRANSCRIPTION_PROMPT
+      : speechTranscriptionPrompt(input.durationSeconds);
   const transcriptionStartedAt = Date.now();
   const transcriptionRun = (
     await db
@@ -152,8 +160,7 @@ export async function analyzeRecording(input: {
       modelId: context.task.modelId,
       schemaName: "speech_evaluation",
       schema: speechEvaluationSchema,
-      system:
-        "You analyze learner speech conservatively for education research. Return only schema-valid JSON and never invent acoustic measurements.",
+      system: SPEECH_EVALUATION_SYSTEM_PROMPT,
       prompt: evaluationPrompt,
     });
     await finishRun(evaluationRun.id, evaluationStartedAt, evaluation);

@@ -2,6 +2,7 @@
 
 import {
   Bot,
+  Braces,
   CheckCircle2,
   Database,
   Download,
@@ -10,11 +11,14 @@ import {
   LayoutDashboard,
   Link2,
   LoaderCircle,
+  LockKeyhole,
   LogOut,
   Plus,
   RefreshCw,
+  ShieldCheck,
   Settings2,
   Users,
+  Workflow,
   X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -23,7 +27,7 @@ import type { adminOverview } from "@/lib/services/admin-service";
 import { STAGES, type StageId } from "@/lib/domain/stages";
 
 type Overview = Awaited<ReturnType<typeof adminOverview>>;
-type Tab = "overview" | "providers" | "tasks" | "research";
+type Tab = "overview" | "providers" | "tasks" | "prompts" | "research";
 
 function ProviderCard({
   provider,
@@ -485,6 +489,256 @@ function TasksTab({
   );
 }
 
+function PromptCode({
+  label,
+  hash,
+  children,
+}: {
+  label: string;
+  hash: string | null;
+  children: string;
+}) {
+  return (
+    <div className="prompt-block">
+      <div className="prompt-block-header">
+        <strong>{label}</strong>
+        {hash ? (
+          <span title={hash}>
+            SHA-256 · <code>{hash.slice(0, 14)}…</code>
+          </span>
+        ) : null}
+      </div>
+      <pre>{children}</pre>
+    </div>
+  );
+}
+
+function PromptAuditTab({ data }: { data: Overview }) {
+  const firstPublished =
+    data.tasks.find((task) => task.status === "published") ?? data.tasks[0];
+  const [taskId, setTaskId] = useState(firstPublished?.id ?? "");
+  const [stageId, setStageId] = useState<StageId>("pretest");
+  const task = data.tasks.find((item) => item.id === taskId) ?? firstPublished;
+  const stage =
+    data.promptAudit.stages.find((item) => item.id === stageId) ??
+    data.promptAudit.stages[0];
+
+  if (!task || !stage) {
+    return <div className="info-banner">尚未建立可供檢視的研究任務。</div>;
+  }
+
+  const instruction = task.config.stageConfig[stage.id].instruction;
+
+  return (
+    <div className="section-stack">
+      <div className="info-banner prompt-audit-banner">
+        <ShieldCheck size={18} />
+        <div>
+          <strong>這裡顯示正式程式實際使用的 Prompt 來源。</strong>
+          <br />
+          已發布任務僅供稽核；修改 Prompt 時應建立新的任務版本，避免改變收案中的研究條件。
+        </div>
+      </div>
+
+      <div className="admin-card prompt-task-card">
+        <div className="prompt-task-select">
+          <div className="field">
+            <label htmlFor="prompt-task">研究任務版本</label>
+            <select
+              className="select"
+              id="prompt-task"
+              value={task.id}
+              onChange={(event) => setTaskId(event.target.value)}
+            >
+              {data.tasks.map((item) => (
+                <option value={item.id} key={item.id}>
+                  {item.title} · v{item.version} · {item.status}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="prompt-lock-state">
+            <LockKeyhole size={18} />
+            <div>
+              <strong>
+                {task.status === "published" ? "已發布、唯讀" : "草稿預覽"}
+              </strong>
+              <small>
+                Prompt v{task.promptVersion} · {task.provider}/{task.modelId}
+              </small>
+            </div>
+          </div>
+        </div>
+        <div className="prompt-task-summary">
+          <div>
+            <span>識別名稱</span>
+            <code>{task.slug}</code>
+          </div>
+          <div>
+            <span>任務摘要用途</span>
+            <strong>只顯示於介面，不送入 AI</strong>
+          </div>
+          <div>
+            <span>發布時間</span>
+            <strong>
+              {task.publishedAt
+                ? new Date(task.publishedAt).toLocaleString("zh-TW")
+                : "尚未發布"}
+            </strong>
+          </div>
+        </div>
+      </div>
+
+      <div className="split-grid">
+        <div className="admin-card">
+          <h3>會送入 AI 的資料</h3>
+          <ul className="prompt-context-list included">
+            {data.promptAudit.contextPolicy.included.map((item) => (
+              <li key={item}>
+                <CheckCircle2 size={15} />
+                {item}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="admin-card">
+          <h3>不會送入 AI 的資料</h3>
+          <ul className="prompt-context-list excluded">
+            {data.promptAudit.contextPolicy.excluded.map((item) => (
+              <li key={item}>
+                <LockKeyhole size={15} />
+                {item}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      <details className="admin-card prompt-disclosure">
+        <summary>
+          <div>
+            <strong>共用 AI 鷹架 System Prompt</strong>
+            <small>圖像分析、概念擴展與句型鷹架共用</small>
+          </div>
+          <Braces size={18} />
+        </summary>
+        <PromptCode
+          label="BASE_SYSTEM_PROMPT"
+          hash={data.promptAudit.baseSystemHash}
+        >
+          {data.promptAudit.baseSystemPrompt}
+        </PromptCode>
+      </details>
+
+      <div className="prompt-stage-layout">
+        <nav className="prompt-stage-nav" aria-label="Prompt 階段">
+          <div className="prompt-stage-nav-title">
+            <Workflow size={17} />
+            七階段流程
+          </div>
+          {data.promptAudit.stages.map((item) => (
+            <button
+              className={stage.id === item.id ? "active" : ""}
+              type="button"
+              key={item.id}
+              onClick={() => setStageId(item.id)}
+            >
+              <span>{item.order}</span>
+              <div>
+                <strong>{item.shortLabel}</strong>
+                <small>
+                  {item.calls.length
+                    ? `${item.calls.length} 個 AI 呼叫`
+                    : "不呼叫 AI"}
+                </small>
+              </div>
+            </button>
+          ))}
+        </nav>
+
+        <section className="prompt-stage-detail">
+          <header>
+            <div>
+              <span className="eyebrow">
+                Stage {stage.order} · <code>{stage.id}</code>
+              </span>
+              <h2>{stage.title}</h2>
+              <p>{stage.description}</p>
+            </div>
+            <span className={`tag ${stage.calls.length ? "prompt-ai-tag" : ""}`}>
+              {stage.calls.length ? "包含 AI 處理" : "學生自主階段"}
+            </span>
+          </header>
+
+          <div className="prompt-instruction-card">
+            <span>學生畫面顯示的階段指示</span>
+            <p>{instruction}</p>
+          </div>
+
+          {stage.calls.length ? (
+            <div className="prompt-call-list">
+              {stage.calls.map((call, index) => (
+                <article className="prompt-call-card" key={call.id}>
+                  <div className="prompt-call-heading">
+                    <span>{index + 1}</span>
+                    <div>
+                      <h3>{call.title}</h3>
+                      <p>{call.purpose}</p>
+                    </div>
+                  </div>
+
+                  <div className="prompt-variable-list">
+                    <strong>執行時注入：</strong>
+                    {call.variables.map((variable) => (
+                      <code key={variable}>{`{{${variable}}}`}</code>
+                    ))}
+                  </div>
+
+                  {call.systemPrompt ? (
+                    <PromptCode
+                      label={call.systemLabel ?? "System prompt"}
+                      hash={call.systemHash}
+                    >
+                      {call.systemPrompt}
+                    </PromptCode>
+                  ) : null}
+
+                  <PromptCode
+                    label="User prompt template"
+                    hash={call.templateHash}
+                  >
+                    {call.userPromptTemplate}
+                  </PromptCode>
+
+                  {call.providerNote ? (
+                    <div className="info-banner">{call.providerNote}</div>
+                  ) : null}
+                  {call.providerPrompt ? (
+                    <PromptCode
+                      label="OpenAI transcription prompt"
+                      hash={call.providerPromptHash}
+                    >
+                      {call.providerPrompt}
+                    </PromptCode>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="prompt-no-ai">
+              <LockKeyhole size={22} />
+              <div>
+                <strong>此階段不呼叫 AI</strong>
+                <p>系統只保存學生輸入，作為後續階段的研究證據。</p>
+              </div>
+            </div>
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}
+
 function ResearchTab({
   data,
   action,
@@ -635,6 +889,7 @@ export function AdminDashboard({ initialData }: { initialData: Overview }) {
         overview: ["控制中心", "掌握研究平台的連線與進度。"],
         providers: ["AI 與儲存", "管理伺服器端憑證及模型。"],
         tasks: ["研究任務", "發布不可變任務版本並產生學生代碼。"],
+        prompts: ["Prompt 與階段", "稽核七階段指示、AI 模板與上下文邊界。"],
         research: ["研究資料", "查看工作階段、覆寫流程與匯出資料。"],
       })[tab],
     [tab],
@@ -695,6 +950,7 @@ export function AdminDashboard({ initialData }: { initialData: Overview }) {
     { id: "overview" as const, label: "控制中心", icon: LayoutDashboard },
     { id: "providers" as const, label: "AI 與儲存", icon: Bot },
     { id: "tasks" as const, label: "研究任務", icon: FileText },
+    { id: "prompts" as const, label: "Prompt 與階段", icon: Braces },
     { id: "research" as const, label: "研究資料", icon: Database },
   ];
 
@@ -752,6 +1008,7 @@ export function AdminDashboard({ initialData }: { initialData: Overview }) {
         {tab === "tasks" ? (
           <TasksTab data={data} action={action} setCodes={setCodes} />
         ) : null}
+        {tab === "prompts" ? <PromptAuditTab data={data} /> : null}
         {tab === "research" ? (
           <ResearchTab data={data} action={action} />
         ) : null}

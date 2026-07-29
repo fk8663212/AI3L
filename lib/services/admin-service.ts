@@ -17,6 +17,7 @@ import {
 } from "@/lib/domain/default-task";
 import type { AIProviderName } from "@/lib/ai/provider";
 import { testProviderConnection } from "@/lib/ai/provider";
+import { promptAuditCatalog } from "@/lib/ai/prompt-audit";
 import {
   decryptSecret,
   encryptSecret,
@@ -123,6 +124,7 @@ export async function adminOverview() {
       completedAt: row.completedAt?.toISOString() ?? null,
     })),
     drive: driveStatus,
+    promptAudit: promptAuditCatalog(),
   };
 }
 

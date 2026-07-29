@@ -5,6 +5,11 @@ import {
   transcriptSchema,
   type Transcript,
 } from "@/lib/ai/schemas";
+import {
+  GOOGLE_TRANSCRIPTION_SYSTEM_PROMPT,
+  OPENAI_TRANSCRIPTION_PROMPT,
+  speechTranscriptionPrompt,
+} from "@/lib/ai/prompts";
 
 export type AIProviderName = "openai" | "google";
 
@@ -174,8 +179,7 @@ export async function transcribeAudio(input: {
       }),
       model: OPENAI_TRANSCRIPTION_MODEL,
       language: "en",
-      prompt:
-        "The speaker is a Taiwanese secondary-school English learner describing a personal market experience. Preserve the learner's actual words and errors.",
+      prompt: OPENAI_TRANSCRIPTION_PROMPT,
       response_format: "json",
     });
     const text = response.text.trim();
@@ -202,9 +206,8 @@ export async function transcribeAudio(input: {
     modelId: input.modelId,
     schemaName: "speech_transcript",
     schema: transcriptSchema,
-    system:
-      "You are a faithful English speech transcriber. Preserve learner wording, hesitations, and grammatical errors. Never rewrite or improve the speech.",
-    prompt: `Transcribe the attached learner recording in English. Its measured duration is ${input.durationSeconds} seconds. Return timestamps bounded by that duration.`,
+    system: GOOGLE_TRANSCRIPTION_SYSTEM_PROMPT,
+    prompt: speechTranscriptionPrompt(input.durationSeconds),
     binary: {
       bytes: input.bytes,
       mimeType: input.mimeType,

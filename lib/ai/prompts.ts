@@ -9,52 +9,36 @@ export const BASE_SYSTEM_PROMPT = `
 5. 回傳必須符合指定 JSON schema，不要包含 markdown。
 `.trim();
 
-export function imageAnalysisPrompt(input: {
-  taskTitle: string;
-  studentLabels: string[];
-}): string {
-  return `
-任務：${input.taskTitle}
+export const IMAGE_ANALYSIS_PROMPT_TEMPLATE = `
+任務：{{task.title}}
 學生在 AI 介入前自行標記的詞彙：
-${input.studentLabels.join(", ") || "沒有"}
+{{student.labels}}
 
 請分析附上的手繪圖，找出可支持口說敘事的人物、物件、事件、地點、感受與特質。
 每一項建議都要給英文、繁中、分類、0 到 1 的信心、圖像證據與一個簡短自然例句。
 最多 12 項，避免重複學生已知且沒有新增價值的項目。
 `.trim();
-}
 
-export function conceptExpansionPrompt(input: {
-  taskTitle: string;
-  studentMap: unknown;
-  acceptedVocabulary: unknown;
-}): string {
-  return `
-任務：${input.taskTitle}
+export const CONCEPT_EXPANSION_PROMPT_TEMPLATE = `
+任務：{{task.title}}
 學生原始概念圖：
-${JSON.stringify(input.studentMap)}
+{{student.conceptMapJson}}
 
 學生已接受或修改後的 AI 詞彙：
-${JSON.stringify(input.acceptedVocabulary)}
+{{student.acceptedVocabularyJson}}
 
 請保留學生原始節點與關係，並提出少量可選的 AI 節點與關係，幫助學生建立連貫敘事。
 AI 新增項目的 source 必須是 "ai"，學生原始項目的 source 必須是 "student"。
 不要加入無法由學生作品支持的歷史或觀光知識。
 `.trim();
-}
 
-export function sentenceScaffoldPrompt(input: {
-  taskTitle: string;
-  finalConceptMap: unknown;
-  studentSentences: string[];
-}): string {
-  return `
-任務：${input.taskTitle}
+export const SENTENCE_SCAFFOLD_PROMPT_TEMPLATE = `
+任務：{{task.title}}
 學生確認後的概念圖：
-${JSON.stringify(input.finalConceptMap)}
+{{student.finalConceptMapJson}}
 
 學生目前自己的句子：
-${JSON.stringify(input.studentSentences)}
+{{student.sentencesJson}}
 
 建立漸進式英語口說鷹架：
 - 5 至 10 個關鍵詞。
@@ -63,20 +47,25 @@ ${JSON.stringify(input.studentSentences)}
 - 3 至 5 個可連接敘事的 transition words。
 示範句只作模型，不可聲稱學生做過未提供的事情。
 `.trim();
-}
 
-export function speechEvaluationPrompt(input: {
-  stage: string;
-  transcript: string;
-  durationSeconds: number;
-  wordsPerMinute: number;
-}): string {
-  return `
-這是台灣國中生在「${input.stage}」階段的英語口說逐字稿：
-${JSON.stringify(input.transcript)}
+export const GOOGLE_TRANSCRIPTION_SYSTEM_PROMPT =
+  "You are a faithful English speech transcriber. Preserve learner wording, hesitations, and grammatical errors. Never rewrite or improve the speech.";
 
-錄音長度：${input.durationSeconds} 秒
-依空白切分的基礎語速估計：${input.wordsPerMinute} WPM
+export const OPENAI_TRANSCRIPTION_PROMPT =
+  "The speaker is a Taiwanese secondary-school English learner describing a personal market experience. Preserve the learner's actual words and errors.";
+
+export const TRANSCRIPTION_PROMPT_TEMPLATE =
+  "Transcribe the attached learner recording in English. Its measured duration is {{recording.durationSeconds}} seconds. Return timestamps bounded by that duration.";
+
+export const SPEECH_EVALUATION_SYSTEM_PROMPT =
+  "You analyze learner speech conservatively for education research. Return only schema-valid JSON and never invent acoustic measurements.";
+
+export const SPEECH_EVALUATION_PROMPT_TEMPLATE = `
+這是台灣國中生在「{{stage.id}}」階段的英語口說逐字稿：
+{{recording.transcriptJson}}
+
+錄音長度：{{recording.durationSeconds}} 秒
+依空白切分的基礎語速估計：{{recording.wordsPerMinute}} WPM
 
 請做研究用途的描述性分析：
 - contentUnits：逐字稿中有明確意義、與經驗相關且不重複的內容單位數。
@@ -87,4 +76,66 @@ ${JSON.stringify(input.transcript)}
 - nextStepZh：提供一項簡短可行的下次練習建議。
 不要修寫逐字稿，也不要聲稱做過聲學量測。
 `.trim();
+
+function renderPromptTemplate(
+  template: string,
+  values: Record<string, string | number>,
+): string {
+  return template.replace(/\{\{([^}]+)\}\}/g, (placeholder, key: string) =>
+    Object.hasOwn(values, key) ? String(values[key]) : placeholder,
+  );
+}
+
+export function imageAnalysisPrompt(input: {
+  taskTitle: string;
+  studentLabels: string[];
+}): string {
+  return renderPromptTemplate(IMAGE_ANALYSIS_PROMPT_TEMPLATE, {
+    "task.title": input.taskTitle,
+    "student.labels": input.studentLabels.join(", ") || "沒有",
+  });
+}
+
+export function conceptExpansionPrompt(input: {
+  taskTitle: string;
+  studentMap: unknown;
+  acceptedVocabulary: unknown;
+}): string {
+  return renderPromptTemplate(CONCEPT_EXPANSION_PROMPT_TEMPLATE, {
+    "task.title": input.taskTitle,
+    "student.conceptMapJson": JSON.stringify(input.studentMap),
+    "student.acceptedVocabularyJson": JSON.stringify(input.acceptedVocabulary),
+  });
+}
+
+export function sentenceScaffoldPrompt(input: {
+  taskTitle: string;
+  finalConceptMap: unknown;
+  studentSentences: string[];
+}): string {
+  return renderPromptTemplate(SENTENCE_SCAFFOLD_PROMPT_TEMPLATE, {
+    "task.title": input.taskTitle,
+    "student.finalConceptMapJson": JSON.stringify(input.finalConceptMap),
+    "student.sentencesJson": JSON.stringify(input.studentSentences),
+  });
+}
+
+export function speechTranscriptionPrompt(durationSeconds: number): string {
+  return renderPromptTemplate(TRANSCRIPTION_PROMPT_TEMPLATE, {
+    "recording.durationSeconds": durationSeconds,
+  });
+}
+
+export function speechEvaluationPrompt(input: {
+  stage: string;
+  transcript: string;
+  durationSeconds: number;
+  wordsPerMinute: number;
+}): string {
+  return renderPromptTemplate(SPEECH_EVALUATION_PROMPT_TEMPLATE, {
+    "stage.id": input.stage,
+    "recording.transcriptJson": JSON.stringify(input.transcript),
+    "recording.durationSeconds": input.durationSeconds,
+    "recording.wordsPerMinute": input.wordsPerMinute,
+  });
 }
