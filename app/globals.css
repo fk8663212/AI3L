@@ -1138,6 +1138,13 @@ button {
   font-weight: 800;
 }
 
+.upload-status {
+  margin-top: 10px;
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
 .consent-card {
   padding: 22px;
   border: 1px solid #efd8a1;

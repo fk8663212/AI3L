@@ -5,25 +5,72 @@ import { ImagePlus, LoaderCircle, X } from "lucide-react";
 import { useRef, useState } from "react";
 import type { SessionView } from "@/lib/services/session-service";
 
-type UploadStep = "idle" | "preparing" | "uploading" | "fallback" | "saving";
+type UploadStep =
+  | "idle"
+  | "converting"
+  | "preparing"
+  | "uploading"
+  | "fallback"
+  | "saving";
 type ImageUploadStage = "visualization" | "self_concept_map";
 
 const DIRECT_UPLOAD_IDLE_TIMEOUT_MS = 12_000;
 const DIRECT_UPLOAD_TOTAL_TIMEOUT_MS = 45_000;
 const FALLBACK_UPLOAD_TOTAL_TIMEOUT_MS = 75_000;
 const MAX_SOURCE_SIZE_BYTES = 25 * 1024 * 1024;
+const STANDARD_IMAGE_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+const HEIC_IMAGE_TYPES = new Set([
+  "image/heic",
+  "image/heif",
+  "image/heic-sequence",
+  "image/heif-sequence",
+]);
 
 class UploadCancelledError extends Error {}
 
+function isHeicFile(file: File): boolean {
+  return (
+    HEIC_IMAGE_TYPES.has(file.type.toLowerCase()) ||
+    /\.(heic|heif)$/i.test(file.name)
+  );
+}
+
 async function normalizeImage(file: File): Promise<File> {
-  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
-    throw new Error("請選擇 JPG、PNG 或 WebP 圖片。");
-  }
   if (file.size > MAX_SOURCE_SIZE_BYTES) {
     throw new Error("原始圖片不可超過 25 MB。");
   }
+  if (file.size < 1) {
+    throw new Error("圖片檔案是空的，請重新選擇。");
+  }
 
-  const bitmap = await createImageBitmap(file);
+  let source: Blob = file;
+  if (isHeicFile(file)) {
+    try {
+      const { heicTo } = await import("heic-to/csp");
+      source = await heicTo({
+        blob: file,
+        type: "image/jpeg",
+        quality: 0.9,
+      });
+    } catch {
+      throw new Error(
+        "HEIC／HEIF 圖片轉換失敗，請改用 JPG、PNG 或 WebP 後重試。",
+      );
+    }
+  } else if (!STANDARD_IMAGE_TYPES.has(file.type.toLowerCase())) {
+    throw new Error("請選擇 HEIC、HEIF、JPG、PNG 或 WebP 圖片。");
+  }
+
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(source);
+  } catch {
+    throw new Error("瀏覽器無法讀取這張圖片，請改用其他圖片後重試。");
+  }
   const maximum = 1800;
   const scale = Math.min(1, maximum / Math.max(bitmap.width, bitmap.height));
   const canvas = document.createElement("canvas");
@@ -93,7 +140,7 @@ export function ImageUploader({
     setBusy(true);
     setError("");
     setNotice("");
-    setStep("preparing");
+    setStep(isHeicFile(file) ? "converting" : "preparing");
     setProgress(0);
     try {
       const normalized = await normalizeImage(file);
@@ -204,22 +251,24 @@ export function ImageUploader({
   }
 
   const busyText =
-    step === "preparing"
-      ? "正在移除 EXIF 並壓縮圖片…"
-      : step === "uploading"
-        ? `正在安全上傳${progress > 0 ? ` ${progress}%` : "…"}`
-        : step === "fallback"
-          ? "直傳較慢，正在切換備援通道…"
-          : stage === "visualization"
-            ? "圖片已保存，正在請 AI 預先辨識更多單字…"
-            : "正在確認圖片已保存…";
+    step === "converting"
+      ? "正在將 HEIC／HEIF 轉為可上傳格式…"
+      : step === "preparing"
+        ? "正在移除 EXIF 並壓縮圖片…"
+        : step === "uploading"
+          ? `正在安全上傳${progress > 0 ? ` ${progress}%` : "…"}`
+          : step === "fallback"
+            ? "直傳較慢，正在切換備援通道…"
+            : stage === "visualization"
+              ? "圖片已保存，正在請 AI 預先辨識更多單字…"
+              : "正在確認圖片已保存…";
 
   return (
     <div>
       <label className="upload-drop">
         <input
           type="file"
-          accept="image/jpeg,image/png,image/webp"
+          accept=".heic,.heif,image/heic,image/heif,image/heic-sequence,image/heif-sequence,image/jpeg,image/png,image/webp"
           onChange={(event) => {
             const selected = event.target.files?.[0];
             event.target.value = "";
@@ -251,7 +300,7 @@ export function ImageUploader({
                   : "點此拍攝或選擇手繪概念圖"}
               </strong>
               <br />
-              會自動縮放並移除相片定位資訊
+              支援 HEIC、HEIF、JPG、PNG、WebP，並會移除相片定位資訊
             </>
           )}
         </span>

@@ -19,7 +19,7 @@ import {
   uploadAudioToDrive,
 } from "@/lib/storage/google-drive";
 
-export const maxDuration = 60;
+export const maxDuration = 180;
 
 const bodySchema = z.object({
   kind: z.enum(["image", "audio"]),
@@ -127,25 +127,34 @@ export async function POST(request: Request) {
         await new Response(source.stream).arrayBuffer(),
       );
       const extension = extensionForMime(metadata.contentType);
-      const driveFile = await uploadAudioToDrive({
-        stream: new Blob([bytes], { type: metadata.contentType }).stream(),
-        mimeType: metadata.contentType,
-        taskSlug: view.task.id,
-        sessionId: claims.sessionId,
-        stageId: body.stage,
-        extension,
-      });
-      driveFileId = driveFile.id ?? undefined;
-      if (!driveFileId) throw new Error("Drive upload completed without file ID.");
+      const [driveResult, analysisResult] = await Promise.allSettled([
+        uploadAudioToDrive({
+          stream: new Blob([bytes], { type: metadata.contentType }).stream(),
+          mimeType: metadata.contentType,
+          taskSlug: view.task.id,
+          sessionId: claims.sessionId,
+          stageId: body.stage,
+          extension,
+        }),
+        analyzeRecording({
+          sessionId: claims.sessionId,
+          stageId: body.stage,
+          mimeType: metadata.contentType,
+          bytes,
+          filename: `${body.stage}.${extension}`,
+          durationSeconds,
+        }),
+      ]);
 
-      const analysis = await analyzeRecording({
-        sessionId: claims.sessionId,
-        stageId: body.stage,
-        mimeType: metadata.contentType,
-        bytes,
-        filename: `${body.stage}.${extension}`,
-        durationSeconds,
-      });
+      if (driveResult.status === "fulfilled") {
+        driveFileId = driveResult.value.id ?? undefined;
+      }
+      if (driveResult.status === "rejected") throw driveResult.reason;
+      if (!driveFileId) throw new Error("Drive upload completed without file ID.");
+      if (analysisResult.status === "rejected") throw analysisResult.reason;
+
+      const driveFile = driveResult.value;
+      const analysis = analysisResult.value;
       await saveRecordingBundle({
         sessionId: claims.sessionId,
         stageId: body.stage,

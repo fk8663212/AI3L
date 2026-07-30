@@ -6,6 +6,12 @@ import { useEffect, useRef, useState } from "react";
 import type { StageId } from "@/lib/domain/stages";
 import type { SessionView } from "@/lib/services/session-service";
 
+type SavePhase = "idle" | "uploading" | "processing";
+
+const UPLOAD_TIMEOUT_MS = 120_000;
+const PROCESSING_TIMEOUT_MS = 190_000;
+const RECONCILE_TIMEOUT_MS = 30_000;
+
 function preferredMimeType(): string {
   const candidates = [
     "audio/webm;codecs=opus",
@@ -27,6 +33,44 @@ function extensionForMime(mime: string): string {
   if (mime.includes("ogg")) return "ogg";
   if (mime.includes("wav")) return "wav";
   return "webm";
+}
+
+function hasSavedRecording(
+  view: SessionView,
+  stage: StageId,
+  stagingPathname: string,
+): boolean {
+  return view.artifacts.some(
+    (artifact) =>
+      artifact.stageId === stage &&
+      artifact.type === "audio" &&
+      artifact.status === "ready" &&
+      artifact.data.stagingPathname === stagingPathname,
+  );
+}
+
+async function fetchSessionView(): Promise<SessionView | null> {
+  try {
+    const response = await fetch("/api/student/session", { cache: "no-store" });
+    if (!response.ok) return null;
+    const payload = await response.json();
+    return payload.data ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function reconcileSavedRecording(
+  stage: StageId,
+  stagingPathname: string,
+): Promise<SessionView | null> {
+  const deadline = Date.now() + RECONCILE_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const view = await fetchSessionView();
+    if (view && hasSavedRecording(view, stage, stagingPathname)) return view;
+    await new Promise((resolve) => window.setTimeout(resolve, 3_000));
+  }
+  return null;
 }
 
 export function AudioRecorder({
@@ -52,6 +96,8 @@ export function AudioRecorder({
   const [blob, setBlob] = useState<Blob | null>(null);
   const [previewUrl, setPreviewUrl] = useState("");
   const [busy, setBusy] = useState(false);
+  const [savePhase, setSavePhase] = useState<SavePhase>("idle");
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState("");
 
   useEffect(
@@ -118,6 +164,8 @@ export function AudioRecorder({
     setPreviewUrl("");
     setBlob(null);
     setSeconds(0);
+    setSavePhase("idle");
+    setUploadProgress(0);
     setError("");
   }
 
@@ -128,38 +176,103 @@ export function AudioRecorder({
       return;
     }
     setBusy(true);
+    setSavePhase("uploading");
+    setUploadProgress(0);
     setError("");
+    let stagingPathname = "";
+    let activePhase: SavePhase = "uploading";
     try {
       const extension = extensionForMime(blob.type);
       const pathname = `student/${sessionId}/${stage}/recording.${extension}`;
-      const result = await upload(pathname, blob, {
-        access: "private",
-        handleUploadUrl: "/api/student/uploads/blob",
-        clientPayload: JSON.stringify({ kind: "audio", stage }),
-        contentType: blob.type || "audio/webm",
-      });
-      const response = await fetch("/api/student/uploads/finalize", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          kind: "audio",
-          stage,
-          url: result.url,
-          durationSeconds: seconds,
-        }),
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.error?.message ?? "錄音保存失敗。");
+      const uploadController = new AbortController();
+      const uploadTimeout = window.setTimeout(
+        () => uploadController.abort(),
+        UPLOAD_TIMEOUT_MS,
+      );
+      let result: Awaited<ReturnType<typeof upload>>;
+      try {
+        result = await upload(pathname, blob, {
+          access: "private",
+          handleUploadUrl: "/api/student/uploads/blob",
+          clientPayload: JSON.stringify({ kind: "audio", stage }),
+          contentType: blob.type || "audio/webm",
+          abortSignal: uploadController.signal,
+          onUploadProgress: ({ percentage }) => {
+            setUploadProgress(Math.round(percentage));
+          },
+        });
+      } finally {
+        window.clearTimeout(uploadTimeout);
       }
+      stagingPathname = result.pathname;
+      setUploadProgress(100);
+      setSavePhase("processing");
+      activePhase = "processing";
+
+      const processingController = new AbortController();
+      const processingTimeout = window.setTimeout(
+        () => processingController.abort(),
+        PROCESSING_TIMEOUT_MS,
+      );
+      let response: Response;
+      try {
+        response = await fetch("/api/student/uploads/finalize", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            kind: "audio",
+            stage,
+            url: result.url,
+            durationSeconds: seconds,
+          }),
+          signal: processingController.signal,
+        });
+      } finally {
+        window.clearTimeout(processingTimeout);
+      }
+      const payload = (await response.json().catch(() => null)) as {
+        data?: SessionView;
+        error?: { message?: string };
+      } | null;
+      if (!response.ok) {
+        throw new Error(
+          payload?.error?.message ??
+            (response.status === 504
+              ? "錄音分析逾時，請稍後再試。"
+              : "錄音保存失敗。"),
+        );
+      }
+      if (!payload?.data) throw new Error("伺服器未回傳錄音保存結果。");
       onSaved(payload.data);
       reset();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "錄音保存失敗。");
+      if (cause instanceof DOMException && cause.name === "AbortError") {
+        const recovered = stagingPathname
+          ? await reconcileSavedRecording(stage, stagingPathname)
+          : null;
+        if (recovered) {
+          onSaved(recovered);
+          reset();
+          return;
+        }
+        setError(
+          activePhase === "uploading"
+            ? "錄音上傳逾時，請確認網路連線後重試。"
+            : "錄音處理超過預期時間，請稍後重試；已完成的錄音不會重複保存。",
+        );
+      } else {
+        setError(cause instanceof Error ? cause.message : "錄音保存失敗。");
+      }
     } finally {
       setBusy(false);
+      setSavePhase("idle");
     }
   }
+
+  const busyLabel =
+    savePhase === "uploading"
+      ? `正在上傳錄音 ${uploadProgress}%`
+      : "正在轉存 Drive 並進行 AI 分析…";
 
   return (
     <div>
@@ -209,11 +322,18 @@ export function AudioRecorder({
             </button>
             <button className="button" type="button" onClick={save} disabled={busy}>
               <UploadCloud size={16} />
-              {busy ? "正在存入 Drive…" : "保存錄音"}
+              {busy ? busyLabel : "保存錄音"}
             </button>
           </>
         ) : null}
       </div>
+      {busy ? (
+        <div className="upload-status" role="status" aria-live="polite">
+          {savePhase === "uploading"
+            ? "正在安全上傳錄音，請勿關閉頁面。"
+            : "錄音已上傳，正在同時轉存 Google Drive、產生逐字稿與口說評估。"}
+        </div>
+      ) : null}
       {error ? <div className="error-banner">{error}</div> : null}
     </div>
   );
