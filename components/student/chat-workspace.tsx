@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import {
   Check,
   CheckCircle2,
@@ -15,7 +16,6 @@ import {
   conceptMapSchema,
   imageAnalysisSchema,
   sentenceScaffoldSchema,
-  type ConceptMap,
 } from "@/lib/ai/schemas";
 import type { StageId } from "@/lib/domain/stages";
 import type {
@@ -174,13 +174,27 @@ function ArtifactHistory({
         <div className="message-row student" key={item.id}>
           <div className="artifact-card">
             <div className="artifact-card-header">
-              <span>{item.type === "image" ? "我的手繪圖" : "我的口說錄音"}</span>
+              <span>
+                {item.type === "image"
+                  ? item.stageId === "self_concept_map"
+                    ? "我的手繪概念圖"
+                    : "我的手繪情境圖"
+                  : "我的口說錄音"}
+              </span>
               <span className="tag">{item.status}</span>
             </div>
             {item.downloadUrl && item.type === "image" ? (
               // Private authenticated route; Next/Image optimization is intentionally skipped.
               // eslint-disable-next-line @next/next/no-img-element
-              <img className="artifact-image" src={item.downloadUrl} alt="學生手繪圖" />
+              <img
+                className="artifact-image"
+                src={item.downloadUrl}
+                alt={
+                  item.stageId === "self_concept_map"
+                    ? "學生手繪概念圖"
+                    : "學生手繪情境圖"
+                }
+              />
             ) : null}
             {item.downloadUrl && item.type === "audio" ? (
               <div className="artifact-card-body">
@@ -294,7 +308,11 @@ function VisualizationPanel({
   return (
     <div className="stage-panel">
       {!image ? (
-        <ImageUploader sessionId={view.session.id} onSaved={onSaved} />
+        <ImageUploader
+          sessionId={view.session.id}
+          stage="visualization"
+          onSaved={onSaved}
+        />
       ) : (
         <div className="success-banner">手繪圖已完成私人上傳。</div>
       )}
@@ -335,89 +353,49 @@ function VisualizationPanel({
   );
 }
 
-function conceptMapFromLines(text: string): ConceptMap {
-  const rawEdges = text
-    .split("\n")
-    .map((line) => line.split("->").map((part) => part.trim()))
-    .filter((parts) => parts.length === 3 && parts.every(Boolean));
-  const labels = Array.from(
-    new Set(rawEdges.flatMap(([from, , to]) => [from, to])),
-  );
-  const nodes = labels.map((label, index) => ({
-    id: `student-node-${index + 1}`,
-    labelEn: label,
-    labelZh: label,
-    category: "object" as const,
-    source: "student" as const,
-  }));
-  const idByLabel = new Map(nodes.map((node) => [node.labelEn, node.id]));
-  const edges = rawEdges.map(([from, relation, to], index) => ({
-    id: `student-edge-${index + 1}`,
-    from: idByLabel.get(from)!,
-    to: idByLabel.get(to)!,
-    relationEn: relation,
-    relationZh: relation,
-    source: "student" as const,
-  }));
-  return { nodes, edges };
-}
-
-function mapToLines(map: ConceptMap | null): string {
-  if (!map) return "";
-  return map.edges
-    .map((edge) => {
-      const from = map.nodes.find((node) => node.id === edge.from)?.labelEn;
-      const to = map.nodes.find((node) => node.id === edge.to)?.labelEn;
-      return `${from ?? edge.from} -> ${edge.relationEn} -> ${to ?? edge.to}`;
-    })
-    .join("\n");
-}
-
 function SelfConceptPanel({
   view,
-  perform,
+  onSaved,
 }: {
   view: SessionView;
-  perform: Perform;
+  onSaved: (view: SessionView) => void;
 }) {
-  const saved = artifact(view, "self_concept_map", "concept_map");
-  const savedMap = conceptMapSchema.safeParse(saved?.data);
-  const [text, setText] = useState(
-    mapToLines(savedMap.success ? savedMap.data : null),
-  );
-  const map = conceptMapFromLines(text);
+  const saved = artifact(view, "self_concept_map", "image");
+
   return (
     <div className="stage-panel">
-      <div className="field" style={{ margin: 0 }}>
-        <label htmlFor="concept-lines">每行寫一個概念關係</label>
-        <textarea
-          id="concept-lines"
-          className="textarea"
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          placeholder={
-            "visitors -> buy -> pineapple cakes\nvendors -> sell -> New Year goods\nlanterns -> create -> festive atmosphere"
-          }
-        />
-        <small style={{ color: "var(--ink-soft)" }}>
-          格式：概念 A → 英文關係 → 概念 B
-        </small>
-      </div>
-      {map.nodes.length ? <ConceptMapCard map={map} title="即時預覽" /> : null}
-      <button
-        className="button secondary"
-        type="button"
-        disabled={map.nodes.length < 3 || map.edges.length < 2}
-        onClick={() =>
-          perform({
-            action: "save_concept_map",
-            ...map,
-            idempotencyKey: crypto.randomUUID(),
-          })
-        }
-      >
-        保存我的概念圖
-      </button>
+      {!saved ? (
+        <>
+          <div className="info-banner">
+            請先在紙上自行畫出概念、方向連線與關係詞，再拍照或選擇圖片上傳。此階段不會由 AI 代畫。
+          </div>
+          <ImageUploader
+            sessionId={view.session.id}
+            stage="self_concept_map"
+            onSaved={onSaved}
+          />
+        </>
+      ) : (
+        <div className="artifact-card">
+          <div className="artifact-card-header">
+            <div>
+              <strong>我的原始手繪概念圖</strong>
+              <small>已完成私人上傳</small>
+            </div>
+            <CheckCircle2 size={20} aria-hidden="true" />
+          </div>
+          {saved.downloadUrl ? (
+            <Image
+              className="handdrawn-concept-image"
+              src={saved.downloadUrl}
+              alt="學生上傳的手繪概念圖"
+              width={1200}
+              height={900}
+              unoptimized
+            />
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }
@@ -621,7 +599,7 @@ function AIConceptPanel({
     return (
       <div className="stage-panel">
         <p style={{ margin: 0, color: "var(--ink-soft)" }}>
-          AI 會分類你原本的概念與已確認詞彙，生成一張具有節點、方向連線與關係詞的新概念圖。
+          AI 會讀取你上傳的手繪概念圖，整合已確認詞彙，生成一張具有節點、方向連線與關係詞的新概念圖。
         </p>
         <button
           className="button"
@@ -886,7 +864,7 @@ function StageComposer({
         <VisualizationPanel view={view} perform={perform} onSaved={onSaved} />
       );
     case "self_concept_map":
-      return <SelfConceptPanel view={view} perform={perform} />;
+      return <SelfConceptPanel view={view} onSaved={onSaved} />;
     case "image_analysis":
       return <ImageAnalysisPanel view={view} perform={perform} />;
     case "ai_concept_map":

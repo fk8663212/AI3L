@@ -25,6 +25,7 @@ const bodySchema = z.object({
   stage: z.enum([
     "pretest",
     "visualization",
+    "self_concept_map",
     "sentence_scaffold",
     "posttest",
   ]),
@@ -49,6 +50,14 @@ export async function POST(request: Request) {
     const view = await getSessionView(claims.sessionId);
     if (view.session.currentStage !== body.stage) {
       throw new ApiError(409, "STAGE_LOCKED", "此階段目前不可完成上傳。");
+    }
+    const imageStage =
+      body.stage === "visualization" || body.stage === "self_concept_map";
+    if (body.kind === "image" && !imageStage) {
+      throw new ApiError(400, "INVALID_UPLOAD", "此階段不接受圖片。");
+    }
+    if (body.kind === "audio" && imageStage) {
+      throw new ApiError(400, "INVALID_UPLOAD", "此階段不接受錄音。");
     }
 
     const metadata = await head(body.url);

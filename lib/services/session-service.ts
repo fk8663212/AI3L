@@ -96,7 +96,6 @@ export function evidenceForStage(
     (row) => row.stageId === stage && row.supersededAt === null,
   );
   const labels = latestArtifact(rows, "visualization", "self_labels");
-  const selfMap = latestArtifact(rows, "self_concept_map", "concept_map");
   const vocabularyDecisions = latestArtifact(
     rows,
     "image_analysis",
@@ -121,8 +120,6 @@ export function evidenceForStage(
       (row) => row.type === "image" && row.status === "ready",
     ).length,
     selfLabelCount: labels ? arrayLength(labels.data, "labels") : 0,
-    conceptNodeCount: selfMap ? arrayLength(selfMap.data, "nodes") : 0,
-    conceptEdgeCount: selfMap ? arrayLength(selfMap.data, "edges") : 0,
     pendingVocabularyDecisions: vocabularyDecisions
       ? arrayLength(vocabularyDecisions.data, "pending")
       : Number.MAX_SAFE_INTEGER,

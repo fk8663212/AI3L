@@ -226,24 +226,36 @@ export async function runStageAI(
     binary = await privateBlobBytes(image.storageLocator);
     sourceImageArtifactId = image.id;
   } else if (stage === "ai_concept_map") {
-    const selfMap = artifactRows.find(
-      (row) => row.stageId === "self_concept_map" && row.type === "concept_map",
+    const selfMapImage = artifactRows.find(
+      (row) => row.stageId === "self_concept_map" && row.type === "image",
     );
     const vocabulary = artifactRows.find(
       (row) =>
         row.stageId === "image_analysis" &&
         row.type === "vocabulary_decisions",
     );
+    if (!selfMapImage?.storageLocator) {
+      throw new ApiError(
+        409,
+        "CONCEPT_MAP_IMAGE_REQUIRED",
+        "找不到學生上傳的手繪概念圖。",
+      );
+    }
     schemaName = "concept_map";
     schema = generatedConceptMapSchema;
     prompt = conceptExpansionPrompt(
       {
         taskTitle: context.task.title,
-        studentMap: selfMap?.data ?? {},
+        studentMap: {
+          format: "hand-drawn-image",
+          attached: true,
+          artifactId: selfMapImage.id,
+        },
         acceptedVocabulary: vocabulary?.data.accepted ?? [],
       },
       promptConfig.conceptExpansionTemplate,
     );
+    binary = await privateBlobBytes(selfMapImage.storageLocator);
   } else {
     const conceptDecisions = artifactRows.find(
       (row) =>

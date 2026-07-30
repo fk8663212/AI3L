@@ -661,6 +661,18 @@ button {
   transition: width 120ms ease-out;
 }
 
+.handdrawn-concept-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 620px;
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  object-fit: contain;
+  background: #fff;
+}
+
 .chip-list {
   display: flex;
   flex-wrap: wrap;

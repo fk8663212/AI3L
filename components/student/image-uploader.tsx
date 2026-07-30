@@ -6,6 +6,7 @@ import { useState } from "react";
 import type { SessionView } from "@/lib/services/session-service";
 
 type UploadStep = "idle" | "preparing" | "uploading" | "fallback" | "saving";
+type ImageUploadStage = "visualization" | "self_concept_map";
 
 const DIRECT_UPLOAD_IDLE_TIMEOUT_MS = 12_000;
 const DIRECT_UPLOAD_TOTAL_TIMEOUT_MS = 45_000;
@@ -46,10 +47,12 @@ async function readApiPayload(response: Response) {
 
 async function fallbackUpload(
   normalized: File,
+  stage: ImageUploadStage,
   signal: AbortSignal,
 ): Promise<SessionView> {
   const formData = new FormData();
   formData.set("file", normalized);
+  formData.set("stage", stage);
   const response = await fetch("/api/student/uploads/image", {
     method: "POST",
     body: formData,
@@ -61,9 +64,11 @@ async function fallbackUpload(
 
 export function ImageUploader({
   sessionId,
+  stage,
   onSaved,
 }: {
   sessionId: string;
+  stage: ImageUploadStage;
   onSaved: (view: SessionView) => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -98,15 +103,17 @@ export function ImageUploader({
 
       let result: Awaited<ReturnType<typeof upload>>;
       try {
+        const filename =
+          stage === "visualization" ? "drawing.webp" : "concept-map.webp";
         result = await upload(
-          `student/${sessionId}/visualization/drawing.webp`,
+          `student/${sessionId}/${stage}/${filename}`,
           normalized,
           {
             access: "private",
             handleUploadUrl: "/api/student/uploads/blob",
             clientPayload: JSON.stringify({
               kind: "image",
-              stage: "visualization",
+              stage,
             }),
             contentType: "image/webp",
             abortSignal: directController.signal,
@@ -129,6 +136,7 @@ export function ImageUploader({
         try {
           const view = await fallbackUpload(
             normalized,
+            stage,
             fallbackController.signal,
           );
           onSaved(view);
@@ -147,7 +155,7 @@ export function ImageUploader({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           kind: "image",
-          stage: "visualization",
+          stage,
           url: result.url,
         }),
       });
@@ -210,7 +218,11 @@ export function ImageUploader({
             <>
               <ImagePlus size={25} />
               <br />
-              <strong>點此拍攝或選擇手繪圖</strong>
+              <strong>
+                {stage === "visualization"
+                  ? "點此拍攝或選擇手繪情境圖"
+                  : "點此拍攝或選擇手繪概念圖"}
+              </strong>
               <br />
               會自動縮放並移除相片定位資訊
             </>

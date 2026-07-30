@@ -21,7 +21,7 @@ export const IMAGE_ANALYSIS_PROMPT_TEMPLATE = `
 最多 12 項，避免重複學生已知且沒有新增價值的項目。
 `.trim();
 
-export const CONCEPT_EXPANSION_PROMPT_TEMPLATE = `
+export const LEGACY_TYPED_CONCEPT_EXPANSION_PROMPT_TEMPLATE = `
 任務：{{task.title}}
 學生原始概念圖：
 {{student.conceptMapJson}}
@@ -36,6 +36,22 @@ AI 新增項目的 source 必須是 "ai"，學生原始項目的 source 必須�
 可加入有助於描述大稻埕情境的近距離詞彙聯想，但不可把未提供的事件寫成學生親身經驗。
 `.trim();
 
+export const CONCEPT_EXPANSION_PROMPT_TEMPLATE = `
+任務：{{task.title}}
+學生原始概念圖已隨本請求作為手繪圖片附件提供。
+附件資訊：
+{{student.conceptMapJson}}
+
+學生已接受或修改後的 AI 詞彙：
+{{student.acceptedVocabularyJson}}
+
+請先讀取手繪概念圖中的節點、方向連線與關係詞，再與已確認詞彙整合，生成一張完整、連貫的新概念圖。
+保留可辨識且有助於敘事的學生原始節點與關係，再加入可由手繪情境、已確認詞彙或緊密情境關聯支持的英文節點與關係。
+新概念圖必須能單獨閱讀：每個節點都應參與至少一條關係，所有 edge 的 from/to 都必須對應到輸出的 node id。
+AI 新增項目的 source 必須是 "ai"，從學生手繪圖讀取的原始項目 source 必須是 "student"。
+難以辨識的字詞或連線不得自行補成學生內容；可加入有助於描述大稻埕情境的近距離詞彙聯想，但不可把未提供的事件寫成學生親身經驗。
+`.trim();
+
 export const IMAGE_ANALYSIS_OUTPUT_CONTRACT = `
 【固定研究輸出契約】
 輸出的每個 suggestions 項目都必須包含對應原圖位置的 region（x、y、width、height，範圍 0 到 1000），供系統直接合成 AI 標記後的手繪圖；不得只回傳文字清單。
@@ -43,6 +59,7 @@ export const IMAGE_ANALYSIS_OUTPUT_CONTRACT = `
 
 export const CONCEPT_MAP_OUTPUT_CONTRACT = `
 【固定研究輸出契約】
+學生原始概念來源是隨請求附上的手繪概念圖圖片；必須先讀取圖片中的節點、方向連線與關係詞，無法辨識時應保守處理，不得假設學生輸入了未出現的概念。
 輸出必須是一張可單獨閱讀的新概念圖，而不是詞彙清單：至少包含 3 個 nodes、2 條有方向且有中英文關係詞的 edges；每條 edge 的 from/to 必須對應輸出的 node id，並清楚標示 student 或 ai 來源。
 `.trim();
 

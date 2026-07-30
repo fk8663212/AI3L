@@ -1,5 +1,6 @@
 import { del, put } from "@vercel/blob";
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import {
   apiErrorResponse,
   ApiError,
@@ -19,6 +20,7 @@ const ALLOWED_IMAGE_TYPES = new Set([
   "image/png",
   "image/webp",
 ]);
+const imageStageSchema = z.enum(["visualization", "self_concept_map"]);
 
 export async function POST(request: Request) {
   let uploadedUrl: string | undefined;
@@ -29,11 +31,13 @@ export async function POST(request: Request) {
       throw new ApiError(401, "UNAUTHORIZED", "請重新登入學生介面。");
     }
 
+    const formData = await request.formData();
+    const stage = imageStageSchema.parse(formData.get("stage"));
     const view = await getSessionView(claims.sessionId);
     if (!view.session.consented) {
       throw new ApiError(409, "CONSENT_REQUIRED", "請先完成研究同意程序。");
     }
-    if (view.session.currentStage !== "visualization") {
+    if (view.session.currentStage !== stage) {
       throw new ApiError(
         409,
         "STAGE_LOCKED",
@@ -41,7 +45,6 @@ export async function POST(request: Request) {
       );
     }
 
-    const formData = await request.formData();
     const file = formData.get("file");
     if (!(file instanceof File)) {
       throw new ApiError(400, "IMAGE_REQUIRED", "請選擇要上傳的圖片。");
@@ -61,8 +64,10 @@ export async function POST(request: Request) {
       );
     }
 
+    const filename =
+      stage === "visualization" ? "drawing.webp" : "concept-map.webp";
     const blob = await put(
-      `student/${claims.sessionId}/visualization/drawing.webp`,
+      `student/${claims.sessionId}/${stage}/${filename}`,
       file,
       {
         access: "private",
@@ -75,7 +80,7 @@ export async function POST(request: Request) {
 
     await saveArtifact({
       sessionId: claims.sessionId,
-      stageId: "visualization",
+      stageId: stage,
       type: "image",
       storageProvider: "vercel-blob",
       storageLocator: blob.url,

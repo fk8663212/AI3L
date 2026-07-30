@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { promptAuditCatalog } from "@/lib/ai/prompt-audit";
 import {
   DEFAULT_TASK_PROMPT_CONFIG,
+  LEGACY_TYPED_CONCEPT_EXPANSION_PROMPT_TEMPLATE,
   conceptExpansionPrompt,
   imageAnalysisPrompt,
   sentenceScaffoldPrompt,
@@ -55,6 +56,13 @@ describe("prompt audit catalog", () => {
         acceptedVocabulary: ["lantern"],
       }),
     ).toContain('{"nodes":["market"]}');
+    expect(
+      conceptExpansionPrompt({
+        taskTitle: "Market story",
+        studentMap: { format: "hand-drawn-image", attached: true },
+        acceptedVocabulary: ["lantern"],
+      }),
+    ).toContain("手繪概念圖圖片");
 
     expect(
       sentenceScaffoldPrompt({
@@ -118,5 +126,30 @@ describe("prompt audit catalog", () => {
 
     expect(normalized.promptConfig).toEqual(DEFAULT_TASK_PROMPT_CONFIG);
     expect(normalized.stageConfig).toEqual(DEFAULT_TASK_CONFIG.stageConfig);
+  });
+
+  it("migrates the former typed concept-map defaults to hand-drawn input", () => {
+    const normalized = normalizeTaskConfig({
+      ...DEFAULT_TASK_CONFIG,
+      promptConfig: {
+        ...DEFAULT_TASK_PROMPT_CONFIG,
+        conceptExpansionTemplate:
+          LEGACY_TYPED_CONCEPT_EXPANSION_PROMPT_TEMPLATE,
+      },
+      stageConfig: {
+        ...DEFAULT_TASK_CONFIG.stageConfig,
+        self_concept_map: {
+          instruction:
+            "先不用 AI，整理至少三個概念，並寫出至少兩個概念之間的英文關係。",
+        },
+      },
+    });
+
+    expect(normalized.stageConfig.self_concept_map.instruction).toContain(
+      "紙上手繪",
+    );
+    expect(normalized.promptConfig.conceptExpansionTemplate).toContain(
+      "手繪圖片附件",
+    );
   });
 });

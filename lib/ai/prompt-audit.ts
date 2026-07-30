@@ -112,7 +112,7 @@ const stageCalls: Record<
       id: "concept_expansion",
       title: "生成新的擴充概念圖",
       purpose:
-        "將原始概念與已確認詞彙分類，生成具有節點、方向連線與關係標籤的新概念圖。",
+        "讀取學生上傳的手繪概念圖，與已確認詞彙整合，生成具有節點、方向連線與關係標籤的新概念圖。",
       systemLabel: "AI scaffold system prompt",
       systemPrompt: config.baseSystemPrompt,
       userPromptTemplate: effectiveConceptExpansionTemplate(
@@ -120,6 +120,7 @@ const stageCalls: Record<
       ),
       variables: [
         "task.title",
+        "student.handDrawnConceptMapImage",
         "student.conceptMapJson",
         "student.acceptedVocabularyJson",
       ],

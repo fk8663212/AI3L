@@ -34,12 +34,6 @@ const bodySchema = z.discriminatedUnion("action", [
     idempotencyKey: z.string().min(8).max(128),
   }),
   z.object({
-    action: z.literal("save_concept_map"),
-    nodes: z.array(conceptNodeSchema).min(1).max(30),
-    edges: z.array(conceptEdgeSchema).max(50),
-    idempotencyKey: z.string().min(8).max(128),
-  }),
-  z.object({
     action: z.literal("run_ai"),
     stage: z.enum(["image_analysis", "ai_concept_map", "sentence_scaffold"]),
   }),
@@ -100,25 +94,6 @@ export async function POST(request: Request) {
           role: "student",
           kind: "labels",
           content: { labels: body.labels },
-          idempotencyKey: body.idempotencyKey,
-        });
-        break;
-      case "save_concept_map":
-        if (view.session.currentStage !== "self_concept_map") {
-          throw new ApiError(409, "STAGE_LOCKED", "目前不是自主概念圖階段。");
-        }
-        await replaceArtifactData({
-          sessionId: claims.sessionId,
-          stageId: "self_concept_map",
-          type: "concept_map",
-          data: { nodes: body.nodes, edges: body.edges },
-        });
-        await saveMessage({
-          sessionId: claims.sessionId,
-          stageId: "self_concept_map",
-          role: "student",
-          kind: "concept_map",
-          content: { nodes: body.nodes, edges: body.edges },
           idempotencyKey: body.idempotencyKey,
         });
         break;

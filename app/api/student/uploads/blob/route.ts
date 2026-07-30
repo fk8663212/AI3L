@@ -10,6 +10,7 @@ const payloadSchema = z.object({
   stage: z.enum([
     "pretest",
     "visualization",
+    "self_concept_map",
     "sentence_scaffold",
     "posttest",
   ]),
@@ -37,13 +38,17 @@ export async function POST(request: Request) {
         if (!pathname.startsWith(expectedPrefix)) {
           throw new ApiError(400, "INVALID_PATH", "上傳路徑無效。");
         }
-        if (
-          payload.kind === "image" &&
-          payload.stage !== "visualization"
-        ) {
-          throw new ApiError(400, "INVALID_UPLOAD", "圖片只能在手繪階段上傳。");
+        const imageStage =
+          payload.stage === "visualization" ||
+          payload.stage === "self_concept_map";
+        if (payload.kind === "image" && !imageStage) {
+          throw new ApiError(
+            400,
+            "INVALID_UPLOAD",
+            "圖片只能在手繪情境或手繪概念圖階段上傳。",
+          );
         }
-        if (payload.kind === "audio" && payload.stage === "visualization") {
+        if (payload.kind === "audio" && imageStage) {
           throw new ApiError(400, "INVALID_UPLOAD", "此階段不接受錄音。");
         }
 

@@ -55,7 +55,7 @@ const PROMPT_FIELDS: Array<{
   {
     key: "conceptExpansionTemplate",
     label: "概念擴展 User Prompt",
-    help: "可用 {{task.title}}、{{student.conceptMapJson}}、{{student.acceptedVocabularyJson}}。",
+    help: "手繪概念圖會另外作為圖片輸入；可用 {{task.title}}、{{student.conceptMapJson}}、{{student.acceptedVocabularyJson}}。",
   },
   {
     key: "sentenceScaffoldTemplate",

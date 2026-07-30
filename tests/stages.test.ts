@@ -10,8 +10,6 @@ const completeEvidence: GateEvidence = {
   audioCount: 1,
   imageCount: 1,
   selfLabelCount: 3,
-  conceptNodeCount: 3,
-  conceptEdgeCount: 2,
   pendingVocabularyDecisions: 0,
   pendingConceptDecisions: 0,
   sentenceCount: 3,
@@ -56,6 +54,15 @@ describe("seven-stage state machine", () => {
         annotatedImageReady: false,
       }).code,
     ).toBe("AI_OUTPUT_REQUIRED");
+  });
+
+  it("requires the student's uploaded hand-drawn concept map", () => {
+    expect(
+      evaluateStageGate("self_concept_map", {
+        ...completeEvidence,
+        imageCount: 0,
+      }).code,
+    ).toBe("CONCEPT_MAP_REQUIRED");
   });
 
   it("requires scaffold generation, student sentences and practice audio", () => {

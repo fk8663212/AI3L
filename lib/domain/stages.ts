@@ -52,8 +52,8 @@ export const STAGES: readonly StageDefinition[] = [
     id: "self_concept_map",
     order: 3,
     shortLabel: "概念",
-    title: "自行建立概念圖",
-    description: "整理人物、物件、事件與它們之間的關係。",
+    title: "手繪原始概念圖",
+    description: "在紙上整理概念、方向連線與關係詞，再拍照上傳。",
     aiEnabled: false,
   },
   {
@@ -94,8 +94,6 @@ export type GateEvidence = {
   audioCount: number;
   imageCount: number;
   selfLabelCount: number;
-  conceptNodeCount: number;
-  conceptEdgeCount: number;
   pendingVocabularyDecisions: number;
   pendingConceptDecisions: number;
   sentenceCount: number;
@@ -153,12 +151,12 @@ export function evaluateStageGate(
             message: "請至少加入三個你原本就知道的英文標記。",
           };
     case "self_concept_map":
-      return evidence.conceptNodeCount >= 3 && evidence.conceptEdgeCount >= 2
+      return evidence.imageCount >= 1
         ? ok()
         : {
             ok: false,
             code: "CONCEPT_MAP_REQUIRED",
-            message: "概念圖至少需要三個節點及兩個關係。",
+            message: "請先上傳一張由學生自行完成的手繪概念圖。",
           };
     case "image_analysis":
       if (!evidence.aiOutputReady || !evidence.annotatedImageReady) {
