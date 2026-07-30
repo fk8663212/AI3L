@@ -1193,6 +1193,28 @@ button {
   background: var(--danger);
 }
 
+.button.danger {
+  color: white;
+  border-color: var(--danger);
+  background: var(--danger);
+}
+
+.button.danger:hover:not(:disabled) {
+  border-color: #8f1f19;
+  background: #8f1f19;
+}
+
+.button.danger-outline {
+  color: var(--danger);
+  border-color: rgba(179, 38, 30, 0.35);
+  background: white;
+}
+
+.button.danger-outline:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: #fff3f1;
+}
+
 .table-wrap {
   overflow-x: auto;
   border: 1px solid var(--line);
@@ -1781,6 +1803,54 @@ button {
   border-radius: 20px;
   background: white;
   box-shadow: var(--shadow);
+}
+
+.danger-heading {
+  display: flex;
+  gap: 12px;
+  color: var(--danger);
+}
+
+.danger-heading h2 {
+  margin-bottom: 5px;
+}
+
+.danger-heading p {
+  margin: 0 0 16px;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
+.delete-task-summary {
+  margin: 16px 0;
+  display: grid;
+  gap: 7px;
+}
+
+.delete-task-summary > div {
+  padding: 8px 10px;
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 10px;
+  border-radius: 8px;
+  background: #faf8f4;
+}
+
+.delete-task-summary dt {
+  color: var(--ink-soft);
+  font-size: 0.75rem;
+}
+
+.delete-task-summary dd {
+  margin: 0;
+  font-weight: 750;
+}
+
+.modal-actions {
+  margin-top: 18px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
 }
 
 @media (max-width: 900px) {

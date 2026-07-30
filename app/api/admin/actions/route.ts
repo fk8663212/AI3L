@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   addCustomModel,
   createTaskRevision,
+  deleteUnusedTask,
   generateAccessCodes,
   overrideSessionStage,
   publishTask,
@@ -101,6 +102,11 @@ const bodySchema = z.discriminatedUnion("action", [
       .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/),
   }),
   z.object({
+    action: z.literal("delete_task"),
+    taskId: z.string().uuid(),
+    confirmation: z.string().min(4).max(180),
+  }),
+  z.object({
     action: z.literal("generate_codes"),
     taskId: z.string().uuid(),
     count: z.number().int().min(1).max(500),
@@ -140,6 +146,9 @@ export async function POST(request: Request) {
         break;
       case "create_task_revision":
         data = await createTaskRevision(body);
+        break;
+      case "delete_task":
+        data = await deleteUnusedTask(body);
         break;
       case "generate_codes":
         data = { codes: await generateAccessCodes(body.taskId, body.count) };

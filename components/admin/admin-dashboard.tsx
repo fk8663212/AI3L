@@ -3,6 +3,7 @@
 import {
   Bot,
   Braces,
+  AlertTriangle,
   CheckCircle2,
   Database,
   Download,
@@ -17,6 +18,7 @@ import {
   RefreshCw,
   ShieldCheck,
   Settings2,
+  Trash2,
   Users,
   Workflow,
   X,
@@ -25,6 +27,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState, type FormEvent } from "react";
 import type { adminOverview } from "@/lib/services/admin-service";
 import { STAGES, type StageId } from "@/lib/domain/stages";
+import { taskDeletionConfirmation } from "@/lib/domain/task-deletion";
 
 type Overview = Awaited<ReturnType<typeof adminOverview>>;
 type Tab = "overview" | "providers" | "tasks" | "prompts" | "research";
@@ -380,6 +383,11 @@ function TasksTab({
     () => structuredClone(data.taskDefaults.promptConfig),
   );
   const [message, setMessage] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<
+    Overview["tasks"][number] | null
+  >(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [deleting, setDeleting] = useState(false);
 
   function resetEditor() {
     setEditingId(null);
@@ -724,6 +732,17 @@ function TasksTab({
                         </button>
                       </>
                     ) : null}
+                    <button
+                      className="button danger-outline"
+                      type="button"
+                      onClick={() => {
+                        setDeleteTarget(task);
+                        setDeleteConfirmation("");
+                      }}
+                    >
+                      <Trash2 size={15} />
+                      刪除
+                    </button>
                   </div>
                 </td>
               </tr>
@@ -731,6 +750,121 @@ function TasksTab({
           </tbody>
         </table>
       </div>
+      {deleteTarget ? (
+        <div className="modal-backdrop">
+          <div className="modal-card">
+            <button
+              className="button ghost"
+              style={{ float: "right" }}
+              type="button"
+              onClick={() => {
+                setDeleteTarget(null);
+                setDeleteConfirmation("");
+              }}
+            >
+              <X size={18} />
+            </button>
+            <div className="danger-heading">
+              <AlertTriangle size={22} />
+              <div>
+                <h2>刪除研究任務</h2>
+                <p>
+                  此操作會永久刪除任務及其未使用的學生代碼，無法復原。
+                </p>
+              </div>
+            </div>
+            <div className="info-banner">
+              若任務已有任何學生工作階段，伺服器會拒絕刪除，以保護研究資料。
+            </div>
+            <dl className="delete-task-summary">
+              <div>
+                <dt>任務</dt>
+                <dd>{deleteTarget.title}</dd>
+              </div>
+              <div>
+                <dt>版本</dt>
+                <dd>v{deleteTarget.version}</dd>
+              </div>
+              <div>
+                <dt>狀態</dt>
+                <dd>{deleteTarget.status}</dd>
+              </div>
+            </dl>
+            <div className="field">
+              <label htmlFor="delete-task-confirmation">
+                請輸入{" "}
+                <code>
+                  {taskDeletionConfirmation(
+                    deleteTarget.slug,
+                    deleteTarget.version,
+                  )}
+                </code>
+              </label>
+              <input
+                className="input"
+                id="delete-task-confirmation"
+                value={deleteConfirmation}
+                onChange={(event) => setDeleteConfirmation(event.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </div>
+            <div className="modal-actions">
+              <button
+                className="button secondary"
+                type="button"
+                onClick={() => {
+                  setDeleteTarget(null);
+                  setDeleteConfirmation("");
+                }}
+              >
+                取消
+              </button>
+              <button
+                className="button danger"
+                type="button"
+                disabled={
+                  deleting ||
+                  deleteConfirmation !==
+                  taskDeletionConfirmation(
+                    deleteTarget.slug,
+                    deleteTarget.version,
+                  )
+                }
+                onClick={async () => {
+                  setDeleting(true);
+                  const result = await action({
+                    action: "delete_task",
+                    taskId: deleteTarget.id,
+                    confirmation: deleteConfirmation,
+                  });
+                  setDeleting(false);
+                  if (!result) {
+                    setDeleteTarget(null);
+                    setDeleteConfirmation("");
+                    return;
+                  }
+                  if (result) {
+                    if (editingId === deleteTarget.id) resetEditor();
+                    setMessage(
+                      `任務 v${deleteTarget.version} 已刪除；相關未使用代碼也已移除。`,
+                    );
+                    setDeleteTarget(null);
+                    setDeleteConfirmation("");
+                  }
+                }}
+              >
+                {deleting ? (
+                  <LoaderCircle className="spin" size={16} />
+                ) : (
+                  <Trash2 size={16} />
+                )}
+                {deleting ? "正在刪除…" : "永久刪除任務"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

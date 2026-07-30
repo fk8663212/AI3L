@@ -16,6 +16,10 @@ import {
   normalizeTaskConfig,
   type TaskConfig,
 } from "@/lib/domain/default-task";
+import {
+  taskDeletionAllowed,
+  taskDeletionConfirmation,
+} from "@/lib/domain/task-deletion";
 import type { AIProviderName } from "@/lib/ai/provider";
 import { testProviderConnection } from "@/lib/ai/provider";
 import { promptAuditCatalog } from "@/lib/ai/prompt-audit";
@@ -418,6 +422,64 @@ export async function createTaskRevision(input: {
     promptVersion: input.promptVersion,
   });
   return { id, version };
+}
+
+export async function deleteUnusedTask(input: {
+  taskId: string;
+  confirmation: string;
+}): Promise<{ id: string; accessCodesDeleted: number }> {
+  const db = getDb();
+  const task = await db.query.tasks.findFirst({
+    where: eq(tasks.id, input.taskId),
+  });
+  if (!task) throw new ApiError(404, "TASK_NOT_FOUND", "找不到任務。");
+
+  const expected = taskDeletionConfirmation(task.slug, task.version);
+  if (input.confirmation !== expected) {
+    throw new ApiError(
+      400,
+      "TASK_DELETE_CONFIRMATION_MISMATCH",
+      `刪除確認文字必須完全等於 ${expected}。`,
+    );
+  }
+
+  const sessionCountRows = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(studentSessions)
+    .where(eq(studentSessions.taskId, task.id));
+  const sessionCount = Number(sessionCountRows[0]?.count ?? 0);
+  if (!taskDeletionAllowed(sessionCount)) {
+    throw new ApiError(
+      409,
+      "TASK_HAS_RESEARCH_DATA",
+      `此任務已有 ${sessionCount} 個學生工作階段，為保護研究資料不可刪除。`,
+    );
+  }
+
+  const codeCountRows = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(accessCodes)
+    .where(eq(accessCodes.taskId, task.id));
+  const accessCodesDeleted = Number(codeCountRows[0]?.count ?? 0);
+  const deleted = await db
+    .delete(tasks)
+    .where(eq(tasks.id, task.id))
+    .returning({ id: tasks.id });
+  if (!deleted[0]) {
+    throw new ApiError(409, "TASK_DELETE_FAILED", "任務未被刪除，請重新整理後再試。");
+  }
+
+  await audit("task.deleted", "task", task.id, {
+    familyId: task.familyId,
+    version: task.version,
+    slug: task.slug,
+    title: task.title,
+    status: task.status,
+    promptVersion: task.promptVersion,
+    accessCodesDeleted,
+    sessionCount,
+  });
+  return { id: task.id, accessCodesDeleted };
 }
 
 export async function publishTask(taskId: string): Promise<void> {
