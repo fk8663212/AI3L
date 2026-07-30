@@ -21,7 +21,7 @@ describe("prompt audit catalog", () => {
     expect(catalog.stages).toHaveLength(7);
     expect(
       catalog.stages.find((stage) => stage.id === "visualization")?.calls,
-    ).toHaveLength(0);
+    ).toHaveLength(1);
     expect(
       catalog.stages.find((stage) => stage.id === "sentence_scaffold")?.calls,
     ).toHaveLength(3);
@@ -48,6 +48,12 @@ describe("prompt audit catalog", () => {
         studentLabels: ["lantern", "crowd"],
       }),
     ).toContain("任務：Market story");
+    expect(
+      imageAnalysisPrompt({
+        taskTitle: "Market story",
+        studentLabels: [],
+      }),
+    ).toContain("10 至 16");
 
     expect(
       conceptExpansionPrompt({

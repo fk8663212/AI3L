@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { get, put } from "@vercel/blob";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { del, get, put } from "@vercel/blob";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import sharp from "sharp";
 import { getDb } from "@/lib/db/client";
 import {
@@ -180,11 +180,24 @@ async function renderAnnotatedDrawing(
 export async function runStageAI(
   sessionId: string,
   stage: "image_analysis" | "ai_concept_map" | "sentence_scaffold",
+  options?: {
+    trigger?: "student_action" | "visualization_upload";
+    sourceImageArtifactId?: string;
+  },
 ) {
   const db = getDb();
   const context = await taskAIContext(sessionId);
   const promptConfig = normalizeTaskConfig(context.task.config).promptConfig;
-  if (context.session.currentStage !== stage) {
+  const isVisualizationUpload =
+    stage === "image_analysis" &&
+    options?.trigger === "visualization_upload";
+  const allowedCurrentStage: "visualization" | undefined = isVisualizationUpload
+    ? "visualization"
+    : undefined;
+  if (
+    context.session.currentStage !== stage &&
+    context.session.currentStage !== allowedCurrentStage
+  ) {
     throw new ApiError(409, "STAGE_LOCKED", "此 AI 階段目前不可操作。");
   }
 
@@ -204,7 +217,11 @@ export async function runStageAI(
 
   if (stage === "image_analysis") {
     const image = artifactRows.find(
-      (row) => row.stageId === "visualization" && row.type === "image",
+      (row) =>
+        row.stageId === "visualization" &&
+        row.type === "image" &&
+        (!options?.sourceImageArtifactId ||
+          row.id === options.sourceImageArtifactId),
     );
     const labels = artifactRows.find(
       (row) => row.stageId === "visualization" && row.type === "self_labels",
@@ -307,12 +324,18 @@ export async function runStageAI(
 
     const outputType =
       stage === "ai_concept_map" ? "generated_concept_map" : stage;
-    await replaceArtifactData({
-      sessionId,
-      stageId: stage,
-      type: outputType,
-      data: result.value as Record<string, unknown>,
-    });
+    const artifactWriteOptions = allowedCurrentStage
+      ? { allowWhenCurrentStage: allowedCurrentStage }
+      : undefined;
+    await replaceArtifactData(
+      {
+        sessionId,
+        stageId: stage,
+        type: outputType,
+        data: result.value as Record<string, unknown>,
+      },
+      artifactWriteOptions,
+    );
     if (stage === "image_analysis" && sourceImageArtifactId) {
       const annotated = imageAnalysisGenerationSchema.parse(result.value);
       if (!binary) throw new Error("Drawing bytes are unavailable.");
@@ -330,31 +353,49 @@ export async function runStageAI(
           allowOverwrite: true,
         },
       );
-      await replaceArtifactData({
+      await replaceArtifactData(
+        {
+          sessionId,
+          stageId: stage,
+          type: "annotated_image",
+          data: {
+            sourceImageArtifactId,
+            annotations: annotated.suggestions,
+            pathname: stored.pathname,
+          },
+          storageProvider: "vercel-blob",
+          storageLocator: stored.url,
+          mimeType: "image/webp",
+          sizeBytes: annotatedBytes.byteLength,
+          sha256: createHash("sha256")
+            .update(annotatedBytes)
+            .digest("base64url"),
+        },
+        artifactWriteOptions,
+      );
+      await replaceArtifactData(
+        {
+          sessionId,
+          stageId: "image_analysis",
+          type: "vocabulary_decisions",
+          data: {
+            pending: annotated.suggestions.map((item) => item.id),
+            accepted: [],
+            rejected: [],
+          },
+        },
+        artifactWriteOptions,
+      );
+    }
+    if (!isVisualizationUpload) {
+      await saveMessage({
         sessionId,
         stageId: stage,
-        type: "annotated_image",
-        data: {
-          sourceImageArtifactId,
-          annotations: annotated.suggestions,
-          pathname: stored.pathname,
-        },
-        storageProvider: "vercel-blob",
-        storageLocator: stored.url,
-        mimeType: "image/webp",
-        sizeBytes: annotatedBytes.byteLength,
-        sha256: createHash("sha256")
-          .update(annotatedBytes)
-          .digest("base64url"),
+        role: "assistant",
+        kind: stage,
+        content: result.value as Record<string, unknown>,
       });
     }
-    await saveMessage({
-      sessionId,
-      stageId: stage,
-      role: "assistant",
-      kind: stage,
-      content: result.value as Record<string, unknown>,
-    });
     await db
       .update(aiRuns)
       .set({
@@ -420,4 +461,76 @@ export async function runStageAI(
       publicMessage,
     );
   }
+}
+
+const IMAGE_ANALYSIS_ARTIFACT_TYPES = [
+  "image_analysis",
+  "annotated_image",
+  "vocabulary_decisions",
+] as const;
+
+async function invalidateImageAnalysisArtifacts(sessionId: string) {
+  const db = getDb();
+  const activeRows = await db.query.artifacts.findMany({
+    where: and(
+      eq(artifacts.sessionId, sessionId),
+      eq(artifacts.stageId, "image_analysis"),
+      inArray(artifacts.type, IMAGE_ANALYSIS_ARTIFACT_TYPES),
+      isNull(artifacts.supersededAt),
+    ),
+  });
+  if (!activeRows.length) return;
+
+  const invalidatedAt = new Date();
+  await db
+    .update(artifacts)
+    .set({ supersededAt: invalidatedAt, updatedAt: invalidatedAt })
+    .where(
+      and(
+        eq(artifacts.sessionId, sessionId),
+        eq(artifacts.stageId, "image_analysis"),
+        inArray(artifacts.type, IMAGE_ANALYSIS_ARTIFACT_TYPES),
+        isNull(artifacts.supersededAt),
+      ),
+    );
+
+  const storedUrls = activeRows.flatMap((row) =>
+    row.storageProvider === "vercel-blob" && row.storageLocator
+      ? [row.storageLocator]
+      : [],
+  );
+  if (storedUrls.length) {
+    try {
+      await del(storedUrls);
+    } catch {
+      // Superseded analysis remains hidden even if Blob cleanup must be retried.
+    }
+  }
+}
+
+export async function precomputeImageAnalysisAfterUpload(input: {
+  sessionId: string;
+  sourceImageArtifactId: string;
+}) {
+  try {
+    await invalidateImageAnalysisArtifacts(input.sessionId);
+    await runStageAI(input.sessionId, "image_analysis", {
+      trigger: "visualization_upload",
+      sourceImageArtifactId: input.sourceImageArtifactId,
+    });
+    return true;
+  } catch (error) {
+    console.error("Image-analysis precompute failed; upload was preserved", {
+      sessionId: input.sessionId,
+      sourceImageArtifactId: input.sourceImageArtifactId,
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+    return false;
+  }
+}
+
+export async function invalidateImageAnalysisAfterSourceDeletion(
+  sessionId: string,
+) {
+  await invalidateImageAnalysisArtifacts(sessionId);
 }

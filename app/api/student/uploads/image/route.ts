@@ -11,6 +11,10 @@ import {
 } from "@/lib/security/request";
 import { getStudentClaims } from "@/lib/security/session";
 import {
+  invalidateImageAnalysisAfterSourceDeletion,
+  precomputeImageAnalysisAfterUpload,
+} from "@/lib/ai/provider-service";
+import {
   getSessionView,
   saveArtifact,
 } from "@/lib/services/session-service";
@@ -84,7 +88,7 @@ export async function POST(request: Request) {
     );
     uploadedUrl = blob.url;
 
-    await saveArtifact({
+    const savedImage = await saveArtifact({
       sessionId: claims.sessionId,
       stageId: stage,
       type: "image",
@@ -98,6 +102,12 @@ export async function POST(request: Request) {
         uploadChannel: "server-fallback",
       },
     });
+    if (stage === "visualization") {
+      await precomputeImageAnalysisAfterUpload({
+        sessionId: claims.sessionId,
+        sourceImageArtifactId: savedImage.id,
+      });
+    }
 
     return NextResponse.json({
       ok: true,
@@ -205,6 +215,17 @@ export async function DELETE(request: Request) {
         "BLOB_DELETE_FAILED",
         "雲端圖片刪除失敗，原圖片已保留，請稍後再試。",
       );
+    }
+    if (stage.data === "visualization") {
+      try {
+        await invalidateImageAnalysisAfterSourceDeletion(claims.sessionId);
+      } catch (error) {
+        console.error("Failed to invalidate deleted image analysis", {
+          sessionId: claims.sessionId,
+          sourceImageArtifactId: found.artifact.id,
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
     }
 
     return NextResponse.json({

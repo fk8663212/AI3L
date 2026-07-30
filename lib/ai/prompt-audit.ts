@@ -83,6 +83,21 @@ function speechEvaluationCall(config: TaskPromptConfig): PromptAuditCall {
   });
 }
 
+function imageAnalysisCall(
+  config: TaskPromptConfig,
+  input: { id: string; title: string; purpose: string },
+): PromptAuditCall {
+  return promptCall({
+    ...input,
+    systemLabel: "AI scaffold system prompt",
+    systemPrompt: config.baseSystemPrompt,
+    userPromptTemplate: effectiveImageAnalysisTemplate(
+      config.imageAnalysisTemplate,
+    ),
+    variables: ["task.title", "student.labels", "student.drawing"],
+  });
+}
+
 const stageCalls: Record<
   StageId,
   (config: TaskPromptConfig) => PromptAuditCall[]
@@ -91,20 +106,21 @@ const stageCalls: Record<
     transcriptionCall(config),
     speechEvaluationCall(config),
   ],
-  visualization: () => [],
+  visualization: (config) => [
+    imageAnalysisCall(config, {
+      id: "image_analysis_precompute",
+      title: "上傳後預先辨識手繪圖",
+      purpose:
+        "圖片上傳完成後立即在後台辨識更多詞彙與座標；結果到圖像分析階段才向學生顯示。",
+    }),
+  ],
   self_concept_map: () => [],
   image_analysis: (config) => [
-    promptCall({
-      id: "image_analysis",
-      title: "手繪圖結構化分析",
+    imageAnalysisCall(config, {
+      id: "image_analysis_retry",
+      title: "手繪圖辨識重試",
       purpose:
-        "辨識學生手繪圖中的元素、回傳標準化座標，形成可審核的英文標記版本。",
-      systemLabel: "AI scaffold system prompt",
-      systemPrompt: config.baseSystemPrompt,
-      userPromptTemplate: effectiveImageAnalysisTemplate(
-        config.imageAnalysisTemplate,
-      ),
-      variables: ["task.title", "student.labels", "student.drawing"],
+        "上傳時的預先分析未完成或需要重跑時，辨識圖中元素並形成可審核的英文標記版本。",
     }),
   ],
   ai_concept_map: (config) => [

@@ -8,6 +8,7 @@ import {
 } from "@/lib/security/request";
 import { getStudentClaims } from "@/lib/security/session";
 import { analyzeRecording } from "@/lib/ai/voice-service";
+import { precomputeImageAnalysisAfterUpload } from "@/lib/ai/provider-service";
 import {
   getSessionView,
   saveArtifact,
@@ -80,7 +81,7 @@ export async function POST(request: Request) {
       if (!metadata.contentType.startsWith("image/")) {
         throw new ApiError(400, "INVALID_IMAGE", "上傳檔案不是支援的圖片。");
       }
-      await saveArtifact({
+      const savedImage = await saveArtifact({
         sessionId: claims.sessionId,
         stageId: body.stage,
         type: "image",
@@ -93,6 +94,12 @@ export async function POST(request: Request) {
           stagingPathname: metadata.pathname,
         },
       });
+      if (body.stage === "visualization") {
+        await precomputeImageAnalysisAfterUpload({
+          sessionId: claims.sessionId,
+          sourceImageArtifactId: savedImage.id,
+        });
+      }
     } else {
       if (!metadata.contentType.startsWith("audio/")) {
         throw new ApiError(400, "INVALID_AUDIO", "上傳檔案不是支援的音訊。");

@@ -45,8 +45,8 @@ export const STAGES: readonly StageDefinition[] = [
     order: 2,
     shortLabel: "手繪",
     title: "手繪情境與自主標記",
-    description: "上傳手繪圖，先標出自己已經知道的英文詞彙。",
-    aiEnabled: false,
+    description: "上傳手繪圖並自主標記；系統同時在後台預先辨識更多詞彙。",
+    aiEnabled: true,
   },
   {
     id: "self_concept_map",

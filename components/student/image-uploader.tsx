@@ -10,6 +10,7 @@ type ImageUploadStage = "visualization" | "self_concept_map";
 
 const DIRECT_UPLOAD_IDLE_TIMEOUT_MS = 12_000;
 const DIRECT_UPLOAD_TOTAL_TIMEOUT_MS = 45_000;
+const FALLBACK_UPLOAD_TOTAL_TIMEOUT_MS = 75_000;
 const MAX_SOURCE_SIZE_BYTES = 25 * 1024 * 1024;
 
 class UploadCancelledError extends Error {}
@@ -147,7 +148,7 @@ export function ImageUploader({
         activeController.current = fallbackController;
         const fallbackTimer = setTimeout(
           () => fallbackController.abort(),
-          DIRECT_UPLOAD_TOTAL_TIMEOUT_MS,
+          FALLBACK_UPLOAD_TOTAL_TIMEOUT_MS,
         );
         try {
           const view = await fallbackUpload(
@@ -209,7 +210,9 @@ export function ImageUploader({
         ? `正在安全上傳${progress > 0 ? ` ${progress}%` : "…"}`
         : step === "fallback"
           ? "直傳較慢，正在切換備援通道…"
-          : "正在確認圖片已保存…";
+          : stage === "visualization"
+            ? "圖片已保存，正在請 AI 預先辨識更多單字…"
+            : "正在確認圖片已保存…";
 
   return (
     <div>

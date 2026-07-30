@@ -18,7 +18,8 @@ export const IMAGE_ANALYSIS_PROMPT_TEMPLATE = `
 每一項建議都要給英文、繁中、分類、0 到 1 的信心、圖像證據與一個簡短自然例句。
 另以原圖左上角為原點，為每一項提供 0 到 1000 的正規化 region（x、y、width、height），緊密框住可辨識元素；不要標記看不見或只能猜測的物件。
 每個 id 必須唯一且穩定，讓學生能逐項審核標記。
-最多 12 項，避免重複學生已知且沒有新增價值的項目。
+圖像證據足夠時提供 10 至 16 項，盡量涵蓋不同分類；圖像內容較少時可少於 10 項，不得為湊數猜測。
+避免重複學生已知且沒有新增價值的項目。
 `.trim();
 
 export const LEGACY_TYPED_CONCEPT_EXPANSION_PROMPT_TEMPLATE = `
@@ -55,6 +56,7 @@ AI 新增項目的 source 必須是 "ai"，從學生手繪圖讀取的原始項�
 export const IMAGE_ANALYSIS_OUTPUT_CONTRACT = `
 【固定研究輸出契約】
 輸出的每個 suggestions 項目都必須包含對應原圖位置的 region（x、y、width、height，範圍 0 到 1000），供系統直接合成 AI 標記後的手繪圖；不得只回傳文字清單。
+圖像證據足夠時應提供 10 至 16 個不重複、適合國中生口說的詞彙；內容不足時應保守減少，不得虛構元素。
 `.trim();
 
 export const CONCEPT_MAP_OUTPUT_CONTRACT = `

@@ -99,31 +99,6 @@ export async function POST(request: Request) {
         break;
       case "run_ai":
         await runStageAI(claims.sessionId, body.stage);
-        if (body.stage === "image_analysis") {
-          const updated = await getSessionView(claims.sessionId);
-          const output = updated.artifacts.find(
-            (artifact) =>
-              artifact.stageId === "image_analysis" &&
-              artifact.type === "image_analysis",
-          );
-          const suggestions = Array.isArray(output?.data.suggestions)
-            ? output.data.suggestions
-            : [];
-          await replaceArtifactData({
-            sessionId: claims.sessionId,
-            stageId: "image_analysis",
-            type: "vocabulary_decisions",
-            data: {
-              pending: suggestions.map((item) =>
-                typeof item === "object" && item && "id" in item
-                  ? String(item.id)
-                  : crypto.randomUUID(),
-              ),
-              accepted: [],
-              rejected: [],
-            },
-          });
-        }
         break;
       case "review_vocabulary":
         if (view.session.currentStage !== "image_analysis") {

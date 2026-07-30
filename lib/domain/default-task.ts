@@ -39,7 +39,7 @@ export const DEFAULT_TASK_CONFIG: TaskConfig = {
     },
     visualization: {
       instruction:
-        "畫出你印象中的場景，包含人物、物件與事件；再標記至少三個你原本就知道的英文詞彙。",
+        "畫出你印象中的場景，包含人物、物件與事件；上傳後系統會先在後台準備更多詞彙，請先獨立標記至少三個你原本就知道的英文詞彙。",
     },
     self_concept_map: {
       instruction:

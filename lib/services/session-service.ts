@@ -239,6 +239,9 @@ export async function getSessionView(sessionId: string): Promise<SessionView> {
   const currentIndex = STAGES.findIndex(
     (stage) => stage.id === found.session.currentStage,
   );
+  const visibleStageIds = new Set(
+    STAGES.slice(0, currentIndex + 1).map((stage) => stage.id),
+  );
   const evidence = evidenceForStage(
     artifactRows,
     found.session.currentStage,
@@ -280,7 +283,8 @@ export async function getSessionView(sessionId: string): Promise<SessionView> {
     messages: messageRows
       .filter(
         (message) =>
-          !message.hiddenUntilComplete || Boolean(found.session.completedAt),
+          visibleStageIds.has(message.stageId) &&
+          (!message.hiddenUntilComplete || Boolean(found.session.completedAt)),
       )
       .map((message) => ({
         id: message.id,
@@ -293,6 +297,7 @@ export async function getSessionView(sessionId: string): Promise<SessionView> {
     artifacts: artifactRows
       .filter(
         (artifact) =>
+          visibleStageIds.has(artifact.stageId) &&
           artifact.supersededAt === null &&
           (!["transcript", "speech_evaluation"].includes(artifact.type) ||
             Boolean(found.session.completedAt)),
@@ -316,24 +321,32 @@ export async function getSessionView(sessionId: string): Promise<SessionView> {
   };
 }
 
-export async function saveArtifact(input: {
-  sessionId: string;
-  stageId: StageId;
-  type: string;
-  status?: string;
-  data?: Record<string, unknown>;
-  storageProvider?: string;
-  storageLocator?: string;
-  mimeType?: string;
-  sizeBytes?: number;
-  sha256?: string;
-}) {
+export async function saveArtifact(
+  input: {
+    sessionId: string;
+    stageId: StageId;
+    type: string;
+    status?: string;
+    data?: Record<string, unknown>;
+    storageProvider?: string;
+    storageLocator?: string;
+    mimeType?: string;
+    sizeBytes?: number;
+    sha256?: string;
+  },
+  options?: {
+    allowWhenCurrentStage?: StageId;
+  },
+) {
   const db = getDb();
   const session = await db.query.studentSessions.findFirst({
     where: eq(studentSessions.id, input.sessionId),
   });
   if (!session) throw new ApiError(404, "SESSION_NOT_FOUND", "找不到工作階段。");
-  if (session.currentStage !== input.stageId) {
+  if (
+    session.currentStage !== input.stageId &&
+    session.currentStage !== options?.allowWhenCurrentStage
+  ) {
     throw new ApiError(409, "STAGE_LOCKED", "此階段目前不可操作。");
   }
 
@@ -413,18 +426,23 @@ export async function saveRecordingBundle(input: {
   });
 }
 
-export async function replaceArtifactData(input: {
-  sessionId: string;
-  stageId: StageId;
-  type: string;
-  data: Record<string, unknown>;
-  status?: string;
-  storageProvider?: string;
-  storageLocator?: string;
-  mimeType?: string;
-  sizeBytes?: number;
-  sha256?: string;
-}) {
+export async function replaceArtifactData(
+  input: {
+    sessionId: string;
+    stageId: StageId;
+    type: string;
+    data: Record<string, unknown>;
+    status?: string;
+    storageProvider?: string;
+    storageLocator?: string;
+    mimeType?: string;
+    sizeBytes?: number;
+    sha256?: string;
+  },
+  options?: {
+    allowWhenCurrentStage?: StageId;
+  },
+) {
   const db = getDb();
   await db
     .update(artifacts)
@@ -437,7 +455,7 @@ export async function replaceArtifactData(input: {
         isNull(artifacts.supersededAt),
       ),
     );
-  return saveArtifact(input);
+  return saveArtifact(input, options);
 }
 
 export async function saveMessage(input: {

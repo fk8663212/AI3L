@@ -413,6 +413,9 @@ function ImageAnalysisPanel({
   );
   const parsed = imageAnalysisSchema.safeParse(output?.data);
   const annotated = annotatedImageSchema.safeParse(annotatedOutput?.data);
+  const preparedForCurrentImage =
+    annotated.success &&
+    annotated.data.sourceImageArtifactId === sourceImage?.id;
   const [decisions, setDecisions] = useState<
     Record<
       string,
@@ -437,7 +440,7 @@ function ImageAnalysisPanel({
       : {},
   );
 
-  if (!parsed.success || !annotated.success || !sourceImage?.downloadUrl) {
+  if (!parsed.success || !preparedForCurrentImage || !sourceImage?.downloadUrl) {
     return (
       <div className="stage-panel">
         <p style={{ margin: 0, color: "var(--ink-soft)" }}>
