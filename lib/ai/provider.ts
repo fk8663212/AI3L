@@ -80,9 +80,8 @@ function sanitizeGoogleSchemaNode(value: unknown): unknown {
       }
       continue;
     }
-    if (key === "items" || key === "additionalProperties") {
-      sanitized[key] =
-        typeof entry === "boolean" ? entry : sanitizeGoogleSchemaNode(entry);
+    if (key === "items") {
+      sanitized[key] = sanitizeGoogleSchemaNode(entry);
       continue;
     }
     if (key === "prefixItems" || key === "anyOf" || key === "oneOf") {
@@ -169,13 +168,13 @@ async function generateGoogle<T>(
   input: GenerateInput<T>,
 ): Promise<StructuredGeneration<T>> {
   const client = new GoogleGenAI({ apiKey: input.apiKey });
-  const parts: Array<
-    | { text: string }
-    | { inlineData: { data: string; mimeType: string } }
-  > = [{ text: input.prompt }];
+  const schema = googleResponseJsonSchema(input.schema);
+  const imageParts: Array<
+    { inlineData: { data: string; mimeType: string } }
+  > = [];
 
   if (input.binary) {
-    parts.push({
+    imageParts.push({
       inlineData: {
         data: Buffer.from(input.binary.bytes).toString("base64"),
         mimeType: input.binary.mimeType,
@@ -183,19 +182,60 @@ async function generateGoogle<T>(
     });
   }
 
-  const response = await client.models.generateContent({
-    model: input.modelId,
-    contents: [{ role: "user", parts }],
-    config: {
-      systemInstruction: input.system,
-      responseMimeType: "application/json",
-      responseJsonSchema: googleResponseJsonSchema(input.schema),
-      maxOutputTokens: 8_000,
-      thinkingConfig: {
-        thinkingLevel: ThinkingLevel.LOW,
+  const partsForPrompt = (
+    prompt: string,
+  ): Array<
+    | { text: string }
+    | { inlineData: { data: string; mimeType: string } }
+  > => [{ text: prompt }, ...imageParts];
+
+  let response;
+  try {
+    response = await client.models.generateContent({
+      model: input.modelId,
+      contents: [{ role: "user", parts: partsForPrompt(input.prompt) }],
+      config: {
+        systemInstruction: input.system,
+        responseMimeType: "application/json",
+        responseJsonSchema: schema,
+        maxOutputTokens: 8_000,
+        thinkingConfig: {
+          thinkingLevel: ThinkingLevel.LOW,
+        },
       },
-    },
-  });
+    });
+  } catch (error) {
+    const status =
+      typeof error === "object" &&
+      error &&
+      "status" in error &&
+      typeof error.status === "number"
+        ? error.status
+        : undefined;
+    const message =
+      error instanceof Error ? error.message.toLowerCase() : "";
+    const invalidSchemaRequest =
+      status === 400 &&
+      (message.includes("invalid_argument") ||
+        message.includes("invalid argument"));
+    if (!invalidSchemaRequest) throw error;
+
+    const compatibilityPrompt = `${input.prompt}
+
+Return only JSON matching this schema exactly:
+${JSON.stringify(schema)}`;
+    response = await client.models.generateContent({
+      model: input.modelId,
+      contents: [
+        { role: "user", parts: partsForPrompt(compatibilityPrompt) },
+      ],
+      config: {
+        systemInstruction: input.system,
+        responseMimeType: "application/json",
+        maxOutputTokens: 8_000,
+      },
+    });
+  }
   if (!response.text) {
     const finishReason = response.candidates?.[0]?.finishReason;
     throw new Error(

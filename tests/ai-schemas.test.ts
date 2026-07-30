@@ -21,7 +21,7 @@ describe("AI structured outputs", () => {
     expect(serialized).not.toContain('"minLength"');
     expect(serialized).toContain('"minItems":1');
     expect(serialized).toContain('"minimum":0');
-    expect(serialized).toContain('"additionalProperties":false');
+    expect(serialized).not.toContain('"additionalProperties"');
 
     const transcript = JSON.stringify(
       googleResponseJsonSchema(z.object({ language: z.literal("en") })),
