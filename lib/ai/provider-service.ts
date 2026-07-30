@@ -368,20 +368,56 @@ export async function runStageAI(
       .where(eq(aiRuns.id, run.id));
     return result.value;
   } catch (error) {
+    const rawErrorMessage =
+      error instanceof Error ? error.message : "Unknown provider error";
+    const safeErrorMessage = rawErrorMessage
+      .replaceAll(context.apiKey, "[redacted]")
+      .replace(/([?&](?:key|api_key)=)[^&\s]+/giu, "$1[redacted]")
+      .slice(0, 500);
+    const providerStatus =
+      typeof error === "object" &&
+      error &&
+      "status" in error &&
+      typeof error.status === "number"
+        ? error.status
+        : undefined;
+    console.error("AI stage generation failed", {
+      stage,
+      provider: context.provider,
+      modelId: context.task.modelId,
+      status: providerStatus,
+      error: safeErrorMessage,
+    });
     await db
       .update(aiRuns)
       .set({
         status: "failed",
         latencyMs: Date.now() - now,
         errorCode: "PROVIDER_ERROR",
-        errorMessage: error instanceof Error ? error.message.slice(0, 500) : "Unknown",
+        errorMessage: safeErrorMessage,
         completedAt: new Date(),
       })
       .where(eq(aiRuns.id, run.id));
+
+    const normalizedError = safeErrorMessage.toLowerCase();
+    const publicMessage =
+      providerStatus === 429 ||
+      normalizedError.includes("quota") ||
+      normalizedError.includes("rate limit")
+        ? "AI 使用額度不足或目前請求過多，請稍後再試。"
+        : providerStatus === 401 ||
+            providerStatus === 403 ||
+            normalizedError.includes("api key")
+          ? "AI API Key 驗證失敗，請通知管理員檢查供應商設定。"
+          : normalizedError.includes("model") &&
+              (providerStatus === 404 ||
+                normalizedError.includes("not found"))
+            ? "目前設定的 AI 模型無法使用，請通知管理員檢查模型設定。"
+            : "AI 分析暫時失敗，請稍後重試。";
     throw new ApiError(
       502,
       "AI_PROVIDER_FAILED",
-      "AI 分析暫時失敗，請稍後重試。",
+      publicMessage,
     );
   }
 }

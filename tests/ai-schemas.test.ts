@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
+import { googleResponseJsonSchema } from "@/lib/ai/provider";
 import {
   annotatedImageSchema,
   generatedConceptMapSchema,
@@ -9,6 +11,25 @@ import {
 } from "@/lib/ai/schemas";
 
 describe("AI structured outputs", () => {
+  it("removes JSON Schema keywords unsupported by Gemini", () => {
+    const schema = googleResponseJsonSchema(
+      imageAnalysisGenerationSchema,
+    ) as Record<string, unknown>;
+    const serialized = JSON.stringify(schema);
+
+    expect(serialized).not.toContain('"$schema"');
+    expect(serialized).not.toContain('"minLength"');
+    expect(serialized).toContain('"minItems":1');
+    expect(serialized).toContain('"minimum":0');
+    expect(serialized).toContain('"additionalProperties":false');
+
+    const transcript = JSON.stringify(
+      googleResponseJsonSchema(z.object({ language: z.literal("en") })),
+    );
+    expect(transcript).not.toContain('"const"');
+    expect(transcript).toContain('"enum":["en"]');
+  });
+
   it("rejects an out-of-range visual confidence", () => {
     const parsed = imageAnalysisSchema.safeParse({
       sceneSummaryZh: "市場場景",

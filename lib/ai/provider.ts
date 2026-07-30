@@ -40,6 +40,67 @@ type GenerateInput<T> = {
   binary?: BinaryInput;
 };
 
+const GOOGLE_JSON_SCHEMA_KEYS = new Set([
+  "$id",
+  "$ref",
+  "$anchor",
+  "type",
+  "format",
+  "title",
+  "description",
+  "enum",
+  "minimum",
+  "maximum",
+  "minItems",
+  "maxItems",
+  "required",
+  "propertyOrdering",
+]);
+
+function sanitizeGoogleSchemaNode(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+
+  const source = value as Record<string, unknown>;
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(source)) {
+    if (key === "const") {
+      sanitized.enum = [entry];
+      continue;
+    }
+    if (key === "properties" || key === "$defs") {
+      if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+        sanitized[key] = Object.fromEntries(
+          Object.entries(entry as Record<string, unknown>).map(
+            ([name, child]) => [name, sanitizeGoogleSchemaNode(child)],
+          ),
+        );
+      }
+      continue;
+    }
+    if (key === "items" || key === "additionalProperties") {
+      sanitized[key] =
+        typeof entry === "boolean" ? entry : sanitizeGoogleSchemaNode(entry);
+      continue;
+    }
+    if (key === "prefixItems" || key === "anyOf" || key === "oneOf") {
+      if (Array.isArray(entry)) {
+        sanitized[key] = entry.map(sanitizeGoogleSchemaNode);
+      }
+      continue;
+    }
+    if (GOOGLE_JSON_SCHEMA_KEYS.has(key)) {
+      sanitized[key] = entry;
+    }
+  }
+  return sanitized;
+}
+
+export function googleResponseJsonSchema(schema: ZodType<unknown>): unknown {
+  return sanitizeGoogleSchemaNode(z.toJSONSchema(schema));
+}
+
 function cleanJson(text: string): string {
   const trimmed = text.trim();
   if (trimmed.startsWith("```")) {
@@ -123,7 +184,7 @@ async function generateGoogle<T>(
     config: {
       systemInstruction: input.system,
       responseMimeType: "application/json",
-      responseJsonSchema: z.toJSONSchema(input.schema),
+      responseJsonSchema: googleResponseJsonSchema(input.schema),
       maxOutputTokens: 4_000,
     },
   });
