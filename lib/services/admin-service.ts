@@ -360,6 +360,66 @@ export async function saveTaskDraft(input: {
   return inserted[0].id;
 }
 
+export async function createTaskRevision(input: {
+  taskId: string;
+  promptVersion: string;
+}): Promise<{ id: string; version: number }> {
+  const db = getDb();
+  const source = await db.query.tasks.findFirst({
+    where: eq(tasks.id, input.taskId),
+  });
+  if (!source) throw new ApiError(404, "TASK_NOT_FOUND", "找不到任務。");
+  if (source.status !== "published") {
+    throw new ApiError(
+      409,
+      "TASK_NOT_PUBLISHED",
+      "只能從已發布任務建立下一個研究版本。",
+    );
+  }
+
+  const revisionRows = await db
+    .select({
+      version: sql<number>`coalesce(max(${tasks.version}), 0)`,
+    })
+    .from(tasks)
+    .where(eq(tasks.familyId, source.familyId));
+  const version = Number(revisionRows[0]?.version ?? source.version) + 1;
+  const existing = await db.query.tasks.findFirst({
+    where: and(eq(tasks.slug, source.slug), eq(tasks.version, version)),
+  });
+  if (existing) {
+    throw new ApiError(
+      409,
+      "TASK_REVISION_EXISTS",
+      `任務 v${version} 已存在。`,
+    );
+  }
+
+  const inserted = await db
+    .insert(tasks)
+    .values({
+      familyId: source.familyId,
+      version,
+      slug: source.slug,
+      title: source.title,
+      description: source.description,
+      provider: source.provider,
+      modelId: source.modelId,
+      promptVersion: input.promptVersion,
+      config: normalizeTaskConfig(source.config),
+      status: "draft",
+    })
+    .returning({ id: tasks.id });
+  const id = inserted[0].id;
+  await audit("task.revision_created", "task", id, {
+    sourceTaskId: source.id,
+    familyId: source.familyId,
+    version,
+    promptVersion: input.promptVersion,
+  });
+  return { id, version };
+}
+
 export async function publishTask(taskId: string): Promise<void> {
   const db = getDb();
   const task = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) });

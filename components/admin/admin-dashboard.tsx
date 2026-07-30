@@ -685,28 +685,44 @@ function TasksTab({
                       </>
                     ) : null}
                     {task.status === "published" ? (
-                      <button
-                        className="button secondary"
-                        type="button"
-                        onClick={async () => {
-                          const result = await action({
-                            action: "generate_codes",
-                            taskId: task.id,
-                            count: 20,
-                          });
-                          if (result && Array.isArray(result.codes)) {
-                            setCodes(
-                              result.codes as Array<{
-                                code: string;
-                                label: string;
-                              }>,
-                            );
+                      <>
+                        <button
+                          className="button secondary"
+                          type="button"
+                          onClick={() =>
+                            action({
+                              action: "create_task_revision",
+                              taskId: task.id,
+                              promptVersion: `${task.version + 1}.0.0`,
+                            })
                           }
-                        }}
-                      >
-                        <Users size={15} />
-                        產生 20 組代碼
-                      </button>
+                        >
+                          <Plus size={15} />
+                          建立 v{task.version + 1} 草稿
+                        </button>
+                        <button
+                          className="button secondary"
+                          type="button"
+                          onClick={async () => {
+                            const result = await action({
+                              action: "generate_codes",
+                              taskId: task.id,
+                              count: 20,
+                            });
+                            if (result && Array.isArray(result.codes)) {
+                              setCodes(
+                                result.codes as Array<{
+                                  code: string;
+                                  label: string;
+                                }>,
+                              );
+                            }
+                          }}
+                        >
+                          <Users size={15} />
+                          產生 20 組代碼
+                        </button>
+                      </>
                     ) : null}
                   </div>
                 </td>

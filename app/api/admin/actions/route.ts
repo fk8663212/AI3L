@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import {
   addCustomModel,
+  createTaskRevision,
   generateAccessCodes,
   overrideSessionStage,
   publishTask,
@@ -91,6 +92,15 @@ const bodySchema = z.discriminatedUnion("action", [
     taskId: z.string().uuid(),
   }),
   z.object({
+    action: z.literal("create_task_revision"),
+    taskId: z.string().uuid(),
+    promptVersion: z
+      .string()
+      .min(1)
+      .max(32)
+      .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/),
+  }),
+  z.object({
     action: z.literal("generate_codes"),
     taskId: z.string().uuid(),
     count: z.number().int().min(1).max(500),
@@ -127,6 +137,9 @@ export async function POST(request: Request) {
         break;
       case "publish_task":
         await publishTask(body.taskId);
+        break;
+      case "create_task_revision":
+        data = await createTaskRevision(body);
         break;
       case "generate_codes":
         data = { codes: await generateAccessCodes(body.taskId, body.count) };
