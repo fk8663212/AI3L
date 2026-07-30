@@ -210,7 +210,6 @@ function ArtifactHistory({
         <div className="message-row assistant" key={item.id}>
           <AnnotatedImageCard
             sourceUrl={source.downloadUrl!}
-            annotatedUrl={item.downloadUrl}
             annotated={annotated}
           />
         </div>
@@ -470,7 +469,6 @@ function ImageAnalysisPanel({
     <div className="stage-panel">
       <AnnotatedImageCard
         sourceUrl={sourceImage.downloadUrl}
-        annotatedUrl={annotatedOutput?.downloadUrl}
         annotated={annotated.data}
       />
       <div className="info-banner">{parsed.data.sceneSummaryZh}</div>

@@ -30,11 +30,9 @@ function boundedRegion(region: AnnotatedImage["annotations"][number]["region"]) 
 
 export function AnnotatedImageCard({
   sourceUrl,
-  annotatedUrl,
   annotated,
 }: {
   sourceUrl: string;
-  annotatedUrl?: string | null;
   annotated: AnnotatedImage;
 }) {
   const [downloading, setDownloading] = useState(false);
@@ -44,18 +42,6 @@ export function AnnotatedImageCard({
     setDownloading(true);
     setError("");
     try {
-      if (annotatedUrl) {
-        const response = await fetch(annotatedUrl, { cache: "no-store" });
-        if (!response.ok) throw new Error("無法讀取 AI 標記版本。");
-        const url = URL.createObjectURL(await response.blob());
-        const anchor = document.createElement("a");
-        anchor.href = url;
-        anchor.download = "ai-annotated-drawing.webp";
-        anchor.click();
-        URL.revokeObjectURL(url);
-        return;
-      }
-
       const response = await fetch(sourceUrl, { cache: "no-store" });
       if (!response.ok) throw new Error("無法讀取原始手繪圖。");
       const bitmap = await createImageBitmap(await response.blob());
@@ -146,34 +132,32 @@ export function AnnotatedImageCard({
           {/* Authenticated private artifact route; image optimization is intentionally skipped. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={annotatedUrl ?? sourceUrl}
+            src={sourceUrl}
             alt="學生手繪圖的 AI 英文標記版本"
           />
-          {!annotatedUrl ? (
-            <div className="annotation-layer" aria-label="AI 圖像標記">
-              {annotated.annotations.map((item) => {
-                const region = boundedRegion(item.region);
-                return (
-                  <div
-                    className="annotation-box"
-                    data-category={item.category}
-                    key={item.id}
-                    style={{
-                      left: `${region.x / 10}%`,
-                      top: `${region.y / 10}%`,
-                      width: `${region.width / 10}%`,
-                      height: `${region.height / 10}%`,
-                    }}
-                  >
-                    <span>
-                      {item.labelEn}
-                      <small>{item.labelZh}</small>
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          ) : null}
+          <div className="annotation-layer" aria-label="AI 圖像標記">
+            {annotated.annotations.map((item) => {
+              const region = boundedRegion(item.region);
+              return (
+                <div
+                  className="annotation-box"
+                  data-category={item.category}
+                  key={item.id}
+                  style={{
+                    left: `${region.x / 10}%`,
+                    top: `${region.y / 10}%`,
+                    width: `${region.width / 10}%`,
+                    height: `${region.height / 10}%`,
+                  }}
+                >
+                  <span title={`${item.labelEn} · ${item.labelZh}`}>
+                    {item.labelEn}
+                    <small>{item.labelZh}</small>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
       {error ? <div className="error-banner">{error}</div> : null}
