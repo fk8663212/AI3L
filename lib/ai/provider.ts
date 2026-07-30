@@ -1,5 +1,6 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 import OpenAI from "openai";
+import { zodTextFormat } from "openai/helpers/zod";
 import { z, type ZodType } from "zod";
 import {
   transcriptSchema,
@@ -133,25 +134,29 @@ async function generateOpenAI<T>(
     });
   }
 
-  const response = await client.responses.create({
+  const supportsReasoning =
+    input.modelId.startsWith("gpt-5") || /^o\d/u.test(input.modelId);
+  const response = await client.responses.parse({
     model: input.modelId,
     instructions: input.system,
     input: [{ role: "user", content }],
-    reasoning: { effort: "low" },
-    max_output_tokens: 4_000,
+    ...(supportsReasoning ? { reasoning: { effort: "low" as const } } : {}),
+    max_output_tokens: 8_000,
     store: false,
     text: {
-      format: {
-        type: "json_schema",
-        name: input.schemaName,
-        schema: z.toJSONSchema(input.schema),
-        strict: true,
-      },
+      format: zodTextFormat(input.schema, input.schemaName),
     },
   });
+  if (!response.output_parsed) {
+    const reason =
+      response.incomplete_details?.reason ??
+      response.status ??
+      "no parsed structured output";
+    throw new Error(`OpenAI returned an incomplete response: ${reason}.`);
+  }
 
   return {
-    value: input.schema.parse(JSON.parse(cleanJson(response.output_text))),
+    value: input.schema.parse(response.output_parsed),
     providerResponseId: response.id,
     usage: {
       inputTokens: response.usage?.input_tokens,
@@ -185,10 +190,20 @@ async function generateGoogle<T>(
       systemInstruction: input.system,
       responseMimeType: "application/json",
       responseJsonSchema: googleResponseJsonSchema(input.schema),
-      maxOutputTokens: 4_000,
+      maxOutputTokens: 8_000,
+      thinkingConfig: {
+        thinkingLevel: ThinkingLevel.LOW,
+      },
     },
   });
-  if (!response.text) throw new Error("Gemini returned an empty response.");
+  if (!response.text) {
+    const finishReason = response.candidates?.[0]?.finishReason;
+    throw new Error(
+      `Gemini returned no structured output${
+        finishReason ? ` (finish reason: ${finishReason})` : ""
+      }.`,
+    );
+  }
 
   return {
     value: input.schema.parse(JSON.parse(cleanJson(response.text))),
@@ -213,14 +228,24 @@ export async function testProviderConnection(input: {
   apiKey: string;
   modelId: string;
 }): Promise<void> {
+  const connectionTestSchema = z.object({
+    ok: z.literal(true),
+  });
   if (input.provider === "openai") {
     const client = new OpenAI({ apiKey: input.apiKey });
     await client.models.retrieve(input.modelId);
-    return;
+  } else {
+    const client = new GoogleGenAI({ apiKey: input.apiKey });
+    await client.models.get({ model: input.modelId });
   }
 
-  const client = new GoogleGenAI({ apiKey: input.apiKey });
-  await client.models.get({ model: input.modelId });
+  await generateStructured({
+    ...input,
+    schemaName: "connection_test",
+    schema: connectionTestSchema,
+    system: "Return the requested structured test response only.",
+    prompt: 'Return {"ok":true}.',
+  });
 }
 
 export async function transcribeAudio(input: {
