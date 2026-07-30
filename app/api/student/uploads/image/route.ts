@@ -1,6 +1,9 @@
 import { del, put } from "@vercel/blob";
+import { and, eq, isNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { getDb } from "@/lib/db/client";
+import { artifacts, studentSessions } from "@/lib/db/schema";
 import {
   apiErrorResponse,
   ApiError,
@@ -21,6 +24,9 @@ const ALLOWED_IMAGE_TYPES = new Set([
   "image/webp",
 ]);
 const imageStageSchema = z.enum(["visualization", "self_concept_map"]);
+const deleteImageSchema = z.object({
+  artifactId: z.string().uuid(),
+});
 
 export async function POST(request: Request) {
   let uploadedUrl: string | undefined;
@@ -105,6 +111,107 @@ export async function POST(request: Request) {
         // Cleanup is best-effort if saving the artifact fails.
       }
     }
+    return apiErrorResponse(error);
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    assertSameOrigin(request);
+    const claims = await getStudentClaims();
+    if (!claims) {
+      throw new ApiError(401, "UNAUTHORIZED", "請重新登入學生介面。");
+    }
+
+    const body = deleteImageSchema.parse(await request.json());
+    const db = getDb();
+    const rows = await db
+      .select({
+        artifact: artifacts,
+        currentStage: studentSessions.currentStage,
+      })
+      .from(artifacts)
+      .innerJoin(
+        studentSessions,
+        eq(artifacts.sessionId, studentSessions.id),
+      )
+      .where(
+        and(
+          eq(artifacts.id, body.artifactId),
+          eq(artifacts.sessionId, claims.sessionId),
+          isNull(artifacts.supersededAt),
+        ),
+      )
+      .limit(1);
+    const found = rows[0];
+    if (!found) {
+      throw new ApiError(404, "IMAGE_NOT_FOUND", "找不到可刪除的圖片。");
+    }
+
+    const stage = imageStageSchema.safeParse(found.artifact.stageId);
+    if (
+      !stage.success ||
+      found.artifact.type !== "image" ||
+      found.artifact.storageProvider !== "vercel-blob"
+    ) {
+      throw new ApiError(400, "INVALID_IMAGE", "此檔案不是學生上傳圖片。");
+    }
+    if (found.currentStage !== stage.data) {
+      throw new ApiError(
+        409,
+        "STAGE_LOCKED",
+        "只能刪除目前階段上傳的圖片。",
+      );
+    }
+
+    const deletedAt = new Date();
+    const updated = await db
+      .update(artifacts)
+      .set({
+        status: "deleted",
+        supersededAt: deletedAt,
+        updatedAt: deletedAt,
+      })
+      .where(
+        and(
+          eq(artifacts.id, found.artifact.id),
+          isNull(artifacts.supersededAt),
+        ),
+      )
+      .returning({ id: artifacts.id });
+    if (!updated[0]) {
+      throw new ApiError(
+        409,
+        "IMAGE_ALREADY_CHANGED",
+        "圖片狀態已改變，請重新整理後再試。",
+      );
+    }
+
+    try {
+      if (found.artifact.storageLocator) {
+        await del(found.artifact.storageLocator);
+      }
+    } catch {
+      await db
+        .update(artifacts)
+        .set({
+          status: found.artifact.status,
+          supersededAt: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(artifacts.id, found.artifact.id));
+      throw new ApiError(
+        502,
+        "BLOB_DELETE_FAILED",
+        "雲端圖片刪除失敗，原圖片已保留，請稍後再試。",
+      );
+    }
+
+    return NextResponse.json({
+      ok: true,
+      data: await getSessionView(claims.sessionId),
+    });
+  } catch (error) {
     return apiErrorResponse(error);
   }
 }

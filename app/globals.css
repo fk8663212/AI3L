@@ -692,6 +692,40 @@ button {
   background: #fff;
 }
 
+.uploaded-image-card .artifact-card-header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.uploaded-image-card .artifact-card-header small {
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+
+.uploaded-image-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.delete-image-confirm {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--danger);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.delete-image-confirm > div {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
 .chip-list {
   display: flex;
   flex-wrap: wrap;
@@ -1255,7 +1289,7 @@ button {
 
 .button.danger-outline {
   color: var(--danger);
-  border-color: rgba(179, 38, 30, 0.35);
+  border: 1px solid rgba(179, 38, 30, 0.35);
   background: white;
 }
 
@@ -2033,6 +2067,19 @@ button {
 
   .review-item {
     grid-template-columns: 1fr;
+  }
+
+  .delete-image-confirm {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .delete-image-confirm > div {
+    width: 100%;
+  }
+
+  .delete-image-confirm > div .button {
+    flex: 1;
   }
 
   .admin-main {

@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import {
   Check,
   CheckCircle2,
@@ -26,6 +25,7 @@ import { AudioRecorder } from "@/components/student/audio-recorder";
 import { AnnotatedImageCard } from "@/components/student/annotated-image-card";
 import { ConceptMapCard } from "@/components/student/concept-map-card";
 import { ImageUploader } from "@/components/student/image-uploader";
+import { UploadedImageCard } from "@/components/student/uploaded-image-card";
 
 type Perform = (body: Record<string, unknown>) => Promise<SessionView | null>;
 
@@ -314,7 +314,12 @@ function VisualizationPanel({
           onSaved={onSaved}
         />
       ) : (
-        <div className="success-banner">手繪圖已完成私人上傳。</div>
+        <UploadedImageCard
+          artifact={image}
+          title="我的手繪情境圖"
+          alt="學生上傳的手繪情境圖"
+          onDeleted={onSaved}
+        />
       )}
       <div className="field" style={{ margin: 0 }}>
         <label htmlFor="self-labels">我原本就知道的英文詞彙</label>
@@ -376,34 +381,12 @@ function SelfConceptPanel({
           />
         </>
       ) : (
-        <div className="artifact-card handdrawn-concept-card">
-          <div className="artifact-card-header">
-            <div>
-              <strong>我的原始手繪概念圖</strong>
-              <small>已完成私人上傳</small>
-            </div>
-            <CheckCircle2 size={20} aria-hidden="true" />
-          </div>
-          {saved.downloadUrl ? (
-            <a
-              className="handdrawn-concept-link"
-              href={saved.downloadUrl}
-              target="_blank"
-              rel="noreferrer"
-              title="開啟原尺寸圖片"
-            >
-              <Image
-                className="handdrawn-concept-image"
-                src={saved.downloadUrl}
-                alt="學生上傳的手繪概念圖"
-                width={640}
-                height={480}
-                unoptimized
-              />
-              <span>點擊預覽可查看原尺寸</span>
-            </a>
-          ) : null}
-        </div>
+        <UploadedImageCard
+          artifact={saved}
+          title="我的原始手繪概念圖"
+          alt="學生上傳的手繪概念圖"
+          onDeleted={onSaved}
+        />
       )}
     </div>
   );
