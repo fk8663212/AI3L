@@ -1,5 +1,5 @@
-import { neon } from "@neondatabase/serverless";
-import { drizzle } from "drizzle-orm/neon-http";
+import { drizzle } from "drizzle-orm/neon-serverless";
+import ws from "ws";
 import * as schema from "@/lib/db/schema";
 
 let cachedDb: ReturnType<typeof createDb> | undefined;
@@ -11,8 +11,11 @@ function createDb() {
       "DATABASE_URL is not configured. Connect a Neon Postgres database before using server features.",
     );
   }
-  const sql = neon(databaseUrl);
-  return drizzle(sql, { schema });
+  return drizzle({
+    connection: databaseUrl,
+    schema,
+    ws,
+  });
 }
 
 export function getDb() {
