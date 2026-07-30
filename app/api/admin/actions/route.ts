@@ -18,6 +18,32 @@ import { getAdminClaims } from "@/lib/security/session";
 import { STAGE_IDS } from "@/lib/domain/stages";
 
 const providerSchema = z.enum(["openai", "google"]);
+const stageInstructionSchema = z.object({
+  instruction: z.string().min(5).max(2_000),
+  minimumRecordingSeconds: z.number().int().min(1).max(600).optional(),
+  maximumRecordingSeconds: z.number().int().min(1).max(600).optional(),
+});
+const stageConfigSchema = z.object({
+  pretest: stageInstructionSchema,
+  visualization: stageInstructionSchema,
+  self_concept_map: stageInstructionSchema,
+  image_analysis: stageInstructionSchema,
+  ai_concept_map: stageInstructionSchema,
+  sentence_scaffold: stageInstructionSchema,
+  posttest: stageInstructionSchema,
+});
+const promptTextSchema = z.string().min(10).max(20_000);
+const promptConfigSchema = z.object({
+  baseSystemPrompt: promptTextSchema,
+  imageAnalysisTemplate: promptTextSchema,
+  conceptExpansionTemplate: promptTextSchema,
+  sentenceScaffoldTemplate: promptTextSchema,
+  googleTranscriptionSystemPrompt: promptTextSchema,
+  openaiTranscriptionPrompt: promptTextSchema,
+  transcriptionTemplate: promptTextSchema,
+  speechEvaluationSystemPrompt: promptTextSchema,
+  speechEvaluationTemplate: promptTextSchema,
+});
 const bodySchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("save_provider"),
@@ -51,7 +77,14 @@ const bodySchema = z.discriminatedUnion("action", [
     description: z.string().min(10).max(2_000),
     provider: providerSchema,
     modelId: z.string().min(1).max(120),
+    promptVersion: z
+      .string()
+      .min(1)
+      .max(32)
+      .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/),
     retentionDays: z.number().int().min(1).max(3_650),
+    stageConfig: stageConfigSchema,
+    promptConfig: promptConfigSchema,
   }),
   z.object({
     action: z.literal("publish_task"),

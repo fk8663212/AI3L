@@ -6,8 +6,6 @@ import {
 } from "@/lib/ai/provider";
 import { taskAIContext } from "@/lib/ai/provider-service";
 import {
-  OPENAI_TRANSCRIPTION_PROMPT,
-  SPEECH_EVALUATION_SYSTEM_PROMPT,
   speechEvaluationPrompt,
   speechTranscriptionPrompt,
 } from "@/lib/ai/prompts";
@@ -17,6 +15,7 @@ import { aiRuns } from "@/lib/db/schema";
 import type { StageId } from "@/lib/domain/stages";
 import { hashForLog } from "@/lib/security/crypto";
 import { ApiError } from "@/lib/security/request";
+import { normalizeTaskConfig } from "@/lib/domain/default-task";
 
 const RECORDING_STAGES = new Set<StageId>([
   "pretest",
@@ -79,6 +78,7 @@ export async function analyzeRecording(input: {
 
   const db = getDb();
   const context = await taskAIContext(input.sessionId);
+  const promptConfig = normalizeTaskConfig(context.task.config).promptConfig;
   if (context.session.currentStage !== input.stageId) {
     throw new ApiError(409, "STAGE_LOCKED", "此錄音階段目前不可操作。");
   }
@@ -89,8 +89,11 @@ export async function analyzeRecording(input: {
       : context.task.modelId;
   const transcriptionPrompt =
     context.provider === "openai"
-      ? OPENAI_TRANSCRIPTION_PROMPT
-      : speechTranscriptionPrompt(input.durationSeconds);
+      ? promptConfig.openaiTranscriptionPrompt
+      : speechTranscriptionPrompt(
+          input.durationSeconds,
+          promptConfig.transcriptionTemplate,
+        );
   const transcriptionStartedAt = Date.now();
   const transcriptionRun = (
     await db
@@ -117,6 +120,9 @@ export async function analyzeRecording(input: {
       mimeType: input.mimeType,
       filename: input.filename,
       durationSeconds: input.durationSeconds,
+      googleSystemPrompt: promptConfig.googleTranscriptionSystemPrompt,
+      openaiPrompt: promptConfig.openaiTranscriptionPrompt,
+      transcriptionTemplate: promptConfig.transcriptionTemplate,
     });
     await finishRun(transcriptionRun.id, transcriptionStartedAt, transcript);
   } catch (error) {
@@ -136,7 +142,7 @@ export async function analyzeRecording(input: {
     transcript: transcript.value.text,
     durationSeconds: input.durationSeconds,
     wordsPerMinute: basicWordsPerMinute,
-  });
+  }, promptConfig.speechEvaluationTemplate);
   const evaluationStartedAt = Date.now();
   const evaluationRun = (
     await db
@@ -160,7 +166,7 @@ export async function analyzeRecording(input: {
       modelId: context.task.modelId,
       schemaName: "speech_evaluation",
       schema: speechEvaluationSchema,
-      system: SPEECH_EVALUATION_SYSTEM_PROMPT,
+      system: promptConfig.speechEvaluationSystemPrompt,
       prompt: evaluationPrompt,
     });
     await finishRun(evaluationRun.id, evaluationStartedAt, evaluation);

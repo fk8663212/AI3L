@@ -16,6 +16,10 @@ import {
   type GateEvidence,
   type StageId,
 } from "@/lib/domain/stages";
+import {
+  normalizeTaskConfig,
+  type TaskConfig,
+} from "@/lib/domain/default-task";
 import { ApiError } from "@/lib/security/request";
 
 export type ArtifactView = {
@@ -45,7 +49,7 @@ export type SessionView = {
     description: string;
     provider: string;
     modelId: string;
-    config: typeof tasks.$inferSelect.config;
+    config: Omit<TaskConfig, "promptConfig">;
   };
   stages: Array<{
     id: StageId;
@@ -236,6 +240,7 @@ export async function getSessionView(sessionId: string): Promise<SessionView> {
     artifactRows,
     found.session.currentStage,
   );
+  const normalizedConfig = normalizeTaskConfig(found.task.config);
 
   return {
     session: {
@@ -252,7 +257,13 @@ export async function getSessionView(sessionId: string): Promise<SessionView> {
       description: found.task.description,
       provider: found.task.provider,
       modelId: found.task.modelId,
-      config: found.task.config,
+      config: {
+        locale: normalizedConfig.locale,
+        targetLanguage: normalizedConfig.targetLanguage,
+        consentText: normalizedConfig.consentText,
+        retentionDays: normalizedConfig.retentionDays,
+        stageConfig: normalizedConfig.stageConfig,
+      },
     },
     stages: STAGES.map((stage, index) => ({
       ...stage,

@@ -1,4 +1,8 @@
 import type { StageId } from "@/lib/domain/stages";
+import {
+  DEFAULT_TASK_PROMPT_CONFIG,
+  type TaskPromptConfig,
+} from "@/lib/ai/prompts";
 
 export type TaskStageConfig = {
   instruction: string;
@@ -12,6 +16,7 @@ export type TaskConfig = {
   consentText: string;
   retentionDays: number;
   stageConfig: Record<StageId, TaskStageConfig>;
+  promptConfig: TaskPromptConfig;
 };
 
 export const DEFAULT_TASK_CONFIG: TaskConfig = {
@@ -20,6 +25,7 @@ export const DEFAULT_TASK_CONFIG: TaskConfig = {
   consentText:
     "我了解本活動會保存我的文字、圖片與口說錄音，供教師進行學習與研究分析。",
   retentionDays: 180,
+  promptConfig: DEFAULT_TASK_PROMPT_CONFIG,
   stageConfig: {
     pretest: {
       instruction:
@@ -57,6 +63,54 @@ export const DEFAULT_TASK_CONFIG: TaskConfig = {
     },
   },
 };
+
+export function normalizeTaskConfig(
+  config: Partial<TaskConfig> | null | undefined,
+): TaskConfig {
+  const sourceStages = config?.stageConfig;
+  return {
+    locale: config?.locale ?? DEFAULT_TASK_CONFIG.locale,
+    targetLanguage:
+      config?.targetLanguage ?? DEFAULT_TASK_CONFIG.targetLanguage,
+    consentText: config?.consentText ?? DEFAULT_TASK_CONFIG.consentText,
+    retentionDays:
+      config?.retentionDays ?? DEFAULT_TASK_CONFIG.retentionDays,
+    promptConfig: {
+      ...DEFAULT_TASK_PROMPT_CONFIG,
+      ...(config?.promptConfig ?? {}),
+    },
+    stageConfig: {
+      pretest: {
+        ...DEFAULT_TASK_CONFIG.stageConfig.pretest,
+        ...sourceStages?.pretest,
+      },
+      visualization: {
+        ...DEFAULT_TASK_CONFIG.stageConfig.visualization,
+        ...sourceStages?.visualization,
+      },
+      self_concept_map: {
+        ...DEFAULT_TASK_CONFIG.stageConfig.self_concept_map,
+        ...sourceStages?.self_concept_map,
+      },
+      image_analysis: {
+        ...DEFAULT_TASK_CONFIG.stageConfig.image_analysis,
+        ...sourceStages?.image_analysis,
+      },
+      ai_concept_map: {
+        ...DEFAULT_TASK_CONFIG.stageConfig.ai_concept_map,
+        ...sourceStages?.ai_concept_map,
+      },
+      sentence_scaffold: {
+        ...DEFAULT_TASK_CONFIG.stageConfig.sentence_scaffold,
+        ...sourceStages?.sentence_scaffold,
+      },
+      posttest: {
+        ...DEFAULT_TASK_CONFIG.stageConfig.posttest,
+        ...sourceStages?.posttest,
+      },
+    },
+  };
+}
 
 export const DEFAULT_TASK = {
   slug: "dadaocheng-lunar-new-year",

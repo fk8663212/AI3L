@@ -170,6 +170,9 @@ export async function transcribeAudio(input: {
   mimeType: string;
   filename: string;
   durationSeconds: number;
+  googleSystemPrompt?: string;
+  openaiPrompt?: string;
+  transcriptionTemplate?: string;
 }): Promise<StructuredGeneration<Transcript>> {
   if (input.provider === "openai") {
     const client = new OpenAI({ apiKey: input.apiKey });
@@ -179,7 +182,7 @@ export async function transcribeAudio(input: {
       }),
       model: OPENAI_TRANSCRIPTION_MODEL,
       language: "en",
-      prompt: OPENAI_TRANSCRIPTION_PROMPT,
+      prompt: input.openaiPrompt ?? OPENAI_TRANSCRIPTION_PROMPT,
       response_format: "json",
     });
     const text = response.text.trim();
@@ -206,8 +209,11 @@ export async function transcribeAudio(input: {
     modelId: input.modelId,
     schemaName: "speech_transcript",
     schema: transcriptSchema,
-    system: GOOGLE_TRANSCRIPTION_SYSTEM_PROMPT,
-    prompt: speechTranscriptionPrompt(input.durationSeconds),
+    system: input.googleSystemPrompt ?? GOOGLE_TRANSCRIPTION_SYSTEM_PROMPT,
+    prompt: speechTranscriptionPrompt(
+      input.durationSeconds,
+      input.transcriptionTemplate,
+    ),
     binary: {
       bytes: input.bytes,
       mimeType: input.mimeType,

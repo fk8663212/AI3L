@@ -1015,6 +1015,128 @@ button {
   font-weight: 800;
 }
 
+.task-editor-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.task-editor-heading h2 {
+  margin-bottom: 6px;
+}
+
+.task-editor-heading p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.task-editor-form {
+  margin-top: 20px;
+  display: grid;
+  gap: 16px;
+}
+
+.task-editor-form .field > small {
+  color: var(--ink-soft);
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
+.task-config-section {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  background: #faf8f4;
+}
+
+.task-config-section summary {
+  padding: 15px 17px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  cursor: pointer;
+  list-style: none;
+  background: white;
+}
+
+.task-config-section summary::-webkit-details-marker {
+  display: none;
+}
+
+.task-config-section[open] summary {
+  border-bottom: 1px solid var(--line);
+}
+
+.task-config-section summary > div {
+  display: grid;
+  gap: 3px;
+}
+
+.task-config-section summary small {
+  color: var(--ink-soft);
+  font-size: 0.72rem;
+}
+
+.task-stage-editor-grid {
+  padding: 16px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.task-stage-editor-grid .field,
+.task-prompt-editor-list .field {
+  margin: 0;
+}
+
+.task-stage-editor-grid .field:last-child {
+  grid-column: 1 / -1;
+}
+
+.task-stage-editor-grid .textarea {
+  min-height: 126px;
+}
+
+.task-prompt-editor-list {
+  padding: 16px;
+  display: grid;
+  gap: 16px;
+}
+
+.task-prompt-editor-list .field {
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.task-prompt-editor-list .field:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.task-prompt-textarea {
+  min-height: 190px;
+  font-family: var(--font-geist-mono), "SFMono-Regular", Consolas, monospace;
+  font-size: 0.76rem;
+  line-height: 1.6;
+  tab-size: 2;
+}
+
+.task-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.task-editor-actions span {
+  color: var(--ink-soft);
+  font-size: 0.75rem;
+}
+
 .prompt-audit-banner {
   display: flex;
   align-items: flex-start;
@@ -1519,6 +1641,14 @@ button {
     grid-template-columns: 1fr;
   }
 
+  .task-stage-editor-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .task-stage-editor-grid .field:last-child {
+    grid-column: auto;
+  }
+
   .prompt-stage-nav {
     position: static;
     grid-template-columns: repeat(7, minmax(72px, 1fr));
@@ -1585,6 +1715,10 @@ button {
   .prompt-task-select,
   .prompt-task-summary {
     grid-template-columns: 1fr;
+  }
+
+  .task-editor-heading {
+    flex-direction: column;
   }
 
   .prompt-stage-detail {

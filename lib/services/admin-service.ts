@@ -13,6 +13,7 @@ import {
 import {
   DEFAULT_TASK,
   DEFAULT_TASK_CONFIG,
+  normalizeTaskConfig,
   type TaskConfig,
 } from "@/lib/domain/default-task";
 import type { AIProviderName } from "@/lib/ai/provider";
@@ -71,6 +72,16 @@ export async function bootstrapDefaults(): Promise<void> {
       status: "draft",
     });
   }
+
+  const taskRows = await db.query.tasks.findMany();
+  for (const task of taskRows) {
+    if (!task.config.promptConfig) {
+      await db
+        .update(tasks)
+        .set({ config: normalizeTaskConfig(task.config) })
+        .where(eq(tasks.id, task.id));
+    }
+  }
 }
 
 export async function adminOverview() {
@@ -117,14 +128,21 @@ export async function adminOverview() {
       lastError: row.lastError,
     })),
     models: modelRows,
-    tasks: taskRows,
+    tasks: taskRows.map((row) => {
+      const config = normalizeTaskConfig(row.config);
+      return {
+        ...row,
+        config,
+        promptAudit: promptAuditCatalog(config.promptConfig),
+      };
+    }),
     sessions: sessionRows.map((row) => ({
       ...row,
       startedAt: row.startedAt.toISOString(),
       completedAt: row.completedAt?.toISOString() ?? null,
     })),
     drive: driveStatus,
-    promptAudit: promptAuditCatalog(),
+    taskDefaults: normalizeTaskConfig(DEFAULT_TASK_CONFIG),
   };
 }
 
@@ -263,13 +281,18 @@ export async function saveTaskDraft(input: {
   description: string;
   provider: AIProviderName;
   modelId: string;
+  promptVersion: string;
   retentionDays: number;
+  stageConfig: TaskConfig["stageConfig"];
+  promptConfig: TaskConfig["promptConfig"];
 }) {
   const db = getDb();
-  const config: TaskConfig = {
+  const config = normalizeTaskConfig({
     ...DEFAULT_TASK_CONFIG,
     retentionDays: input.retentionDays,
-  };
+    stageConfig: input.stageConfig,
+    promptConfig: input.promptConfig,
+  });
 
   if (input.id) {
     const current = await db.query.tasks.findFirst({
@@ -279,6 +302,19 @@ export async function saveTaskDraft(input: {
     if (current.status !== "draft") {
       throw new ApiError(409, "TASK_IMMUTABLE", "已發布任務不可直接修改。");
     }
+    const duplicate = await db.query.tasks.findFirst({
+      where: and(
+        eq(tasks.slug, input.slug),
+        eq(tasks.version, current.version),
+      ),
+    });
+    if (duplicate && duplicate.id !== current.id) {
+      throw new ApiError(
+        409,
+        "TASK_SLUG_EXISTS",
+        "此識別名稱與版本已存在，請改用不同的識別名稱。",
+      );
+    }
     await db
       .update(tasks)
       .set({
@@ -287,11 +323,23 @@ export async function saveTaskDraft(input: {
         description: input.description,
         provider: input.provider,
         modelId: input.modelId,
+        promptVersion: input.promptVersion,
         config,
         updatedAt: new Date(),
       })
       .where(eq(tasks.id, input.id));
     return input.id;
+  }
+
+  const duplicate = await db.query.tasks.findFirst({
+    where: and(eq(tasks.slug, input.slug), eq(tasks.version, 1)),
+  });
+  if (duplicate) {
+    throw new ApiError(
+      409,
+      "TASK_SLUG_EXISTS",
+      "此識別名稱已存在；若要修改，請編輯既有草稿或使用新的識別名稱。",
+    );
   }
 
   const inserted = await db
@@ -304,6 +352,7 @@ export async function saveTaskDraft(input: {
       description: input.description,
       provider: input.provider,
       modelId: input.modelId,
+      promptVersion: input.promptVersion,
       config,
       status: "draft",
     })
@@ -484,7 +533,14 @@ export async function exportResearchData(taskId?: string) {
   return {
     exportedAt: new Date().toISOString(),
     taskId: taskId ?? null,
-    tasks: taskRows,
+    tasks: taskRows.map((row) => {
+      const config = normalizeTaskConfig(row.config);
+      return {
+        ...row,
+        config,
+        promptAudit: promptAuditCatalog(config.promptConfig),
+      };
+    }),
     accessCodes: codeRows.filter((row) => taskIds.has(row.taskId)),
     sessions: sessionRows,
     stageAttempts: attemptRows.filter((row) => ids.has(row.sessionId)),

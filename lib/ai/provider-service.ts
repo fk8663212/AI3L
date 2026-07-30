@@ -20,11 +20,11 @@ import {
   type BinaryInput,
 } from "@/lib/ai/provider";
 import {
-  BASE_SYSTEM_PROMPT,
   conceptExpansionPrompt,
   imageAnalysisPrompt,
   sentenceScaffoldPrompt,
 } from "@/lib/ai/prompts";
+import { normalizeTaskConfig } from "@/lib/domain/default-task";
 import { decryptSecret, hashForLog } from "@/lib/security/crypto";
 import { ApiError } from "@/lib/security/request";
 import {
@@ -88,6 +88,7 @@ export async function runStageAI(
 ) {
   const db = getDb();
   const context = await taskAIContext(sessionId);
+  const promptConfig = normalizeTaskConfig(context.task.config).promptConfig;
   if (context.session.currentStage !== stage) {
     throw new ApiError(409, "STAGE_LOCKED", "此 AI 階段目前不可操作。");
   }
@@ -122,7 +123,7 @@ export async function runStageAI(
       studentLabels: Array.isArray(labels?.data.labels)
         ? (labels.data.labels as string[])
         : [],
-    });
+    }, promptConfig.imageAnalysisTemplate);
     binary = await privateBlobBytes(image.storageLocator);
   } else if (stage === "ai_concept_map") {
     const selfMap = artifactRows.find(
@@ -139,7 +140,7 @@ export async function runStageAI(
       taskTitle: context.task.title,
       studentMap: selfMap?.data ?? {},
       acceptedVocabulary: vocabulary?.data.accepted ?? [],
-    });
+    }, promptConfig.conceptExpansionTemplate);
   } else {
     const conceptDecisions = artifactRows.find(
       (row) =>
@@ -156,7 +157,7 @@ export async function runStageAI(
       studentSentences: Array.isArray(sentences?.data.sentences)
         ? (sentences.data.sentences as string[])
         : [],
-    });
+    }, promptConfig.sentenceScaffoldTemplate);
   }
 
   const run = (
@@ -181,7 +182,7 @@ export async function runStageAI(
       modelId: context.task.modelId,
       schemaName,
       schema,
-      system: BASE_SYSTEM_PROMPT,
+      system: promptConfig.baseSystemPrompt,
       prompt,
       binary,
     });

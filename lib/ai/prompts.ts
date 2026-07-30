@@ -77,6 +77,30 @@ export const SPEECH_EVALUATION_PROMPT_TEMPLATE = `
 不要修寫逐字稿，也不要聲稱做過聲學量測。
 `.trim();
 
+export type TaskPromptConfig = {
+  baseSystemPrompt: string;
+  imageAnalysisTemplate: string;
+  conceptExpansionTemplate: string;
+  sentenceScaffoldTemplate: string;
+  googleTranscriptionSystemPrompt: string;
+  openaiTranscriptionPrompt: string;
+  transcriptionTemplate: string;
+  speechEvaluationSystemPrompt: string;
+  speechEvaluationTemplate: string;
+};
+
+export const DEFAULT_TASK_PROMPT_CONFIG: TaskPromptConfig = {
+  baseSystemPrompt: BASE_SYSTEM_PROMPT,
+  imageAnalysisTemplate: IMAGE_ANALYSIS_PROMPT_TEMPLATE,
+  conceptExpansionTemplate: CONCEPT_EXPANSION_PROMPT_TEMPLATE,
+  sentenceScaffoldTemplate: SENTENCE_SCAFFOLD_PROMPT_TEMPLATE,
+  googleTranscriptionSystemPrompt: GOOGLE_TRANSCRIPTION_SYSTEM_PROMPT,
+  openaiTranscriptionPrompt: OPENAI_TRANSCRIPTION_PROMPT,
+  transcriptionTemplate: TRANSCRIPTION_PROMPT_TEMPLATE,
+  speechEvaluationSystemPrompt: SPEECH_EVALUATION_SYSTEM_PROMPT,
+  speechEvaluationTemplate: SPEECH_EVALUATION_PROMPT_TEMPLATE,
+};
+
 function renderPromptTemplate(
   template: string,
   values: Record<string, string | number>,
@@ -89,8 +113,8 @@ function renderPromptTemplate(
 export function imageAnalysisPrompt(input: {
   taskTitle: string;
   studentLabels: string[];
-}): string {
-  return renderPromptTemplate(IMAGE_ANALYSIS_PROMPT_TEMPLATE, {
+}, template = IMAGE_ANALYSIS_PROMPT_TEMPLATE): string {
+  return renderPromptTemplate(template, {
     "task.title": input.taskTitle,
     "student.labels": input.studentLabels.join(", ") || "沒有",
   });
@@ -100,8 +124,8 @@ export function conceptExpansionPrompt(input: {
   taskTitle: string;
   studentMap: unknown;
   acceptedVocabulary: unknown;
-}): string {
-  return renderPromptTemplate(CONCEPT_EXPANSION_PROMPT_TEMPLATE, {
+}, template = CONCEPT_EXPANSION_PROMPT_TEMPLATE): string {
+  return renderPromptTemplate(template, {
     "task.title": input.taskTitle,
     "student.conceptMapJson": JSON.stringify(input.studentMap),
     "student.acceptedVocabularyJson": JSON.stringify(input.acceptedVocabulary),
@@ -112,16 +136,19 @@ export function sentenceScaffoldPrompt(input: {
   taskTitle: string;
   finalConceptMap: unknown;
   studentSentences: string[];
-}): string {
-  return renderPromptTemplate(SENTENCE_SCAFFOLD_PROMPT_TEMPLATE, {
+}, template = SENTENCE_SCAFFOLD_PROMPT_TEMPLATE): string {
+  return renderPromptTemplate(template, {
     "task.title": input.taskTitle,
     "student.finalConceptMapJson": JSON.stringify(input.finalConceptMap),
     "student.sentencesJson": JSON.stringify(input.studentSentences),
   });
 }
 
-export function speechTranscriptionPrompt(durationSeconds: number): string {
-  return renderPromptTemplate(TRANSCRIPTION_PROMPT_TEMPLATE, {
+export function speechTranscriptionPrompt(
+  durationSeconds: number,
+  template = TRANSCRIPTION_PROMPT_TEMPLATE,
+): string {
+  return renderPromptTemplate(template, {
     "recording.durationSeconds": durationSeconds,
   });
 }
@@ -131,8 +158,8 @@ export function speechEvaluationPrompt(input: {
   transcript: string;
   durationSeconds: number;
   wordsPerMinute: number;
-}): string {
-  return renderPromptTemplate(SPEECH_EVALUATION_PROMPT_TEMPLATE, {
+}, template = SPEECH_EVALUATION_PROMPT_TEMPLATE): string {
+  return renderPromptTemplate(template, {
     "stage.id": input.stage,
     "recording.transcriptJson": JSON.stringify(input.transcript),
     "recording.durationSeconds": input.durationSeconds,

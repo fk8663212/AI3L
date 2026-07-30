@@ -1,13 +1,6 @@
 import {
-  BASE_SYSTEM_PROMPT,
-  CONCEPT_EXPANSION_PROMPT_TEMPLATE,
-  GOOGLE_TRANSCRIPTION_SYSTEM_PROMPT,
-  IMAGE_ANALYSIS_PROMPT_TEMPLATE,
-  OPENAI_TRANSCRIPTION_PROMPT,
-  SENTENCE_SCAFFOLD_PROMPT_TEMPLATE,
-  SPEECH_EVALUATION_PROMPT_TEMPLATE,
-  SPEECH_EVALUATION_SYSTEM_PROMPT,
-  TRANSCRIPTION_PROMPT_TEMPLATE,
+  DEFAULT_TASK_PROMPT_CONFIG,
+  type TaskPromptConfig,
 } from "@/lib/ai/prompts";
 import { STAGES, type StageId } from "@/lib/domain/stages";
 import { hashForLog } from "@/lib/security/crypto";
@@ -56,29 +49,29 @@ function promptCall(input: {
   };
 }
 
-function transcriptionCall(): PromptAuditCall {
+function transcriptionCall(config: TaskPromptConfig): PromptAuditCall {
   return promptCall({
     id: "speech_transcription",
     title: "忠實英語逐字稿",
     purpose: "保留學生原話、停頓與文法錯誤，不替學生潤稿。",
     systemLabel: "Gemini system instruction",
-    systemPrompt: GOOGLE_TRANSCRIPTION_SYSTEM_PROMPT,
-    userPromptTemplate: TRANSCRIPTION_PROMPT_TEMPLATE,
+    systemPrompt: config.googleTranscriptionSystemPrompt,
+    userPromptTemplate: config.transcriptionTemplate,
     variables: ["recording.durationSeconds", "recording.audio"],
     providerNote:
       "Gemini 使用上方 system instruction 與使用者模板；OpenAI 使用專用轉錄 API，並將下方文字放入 transcription prompt。",
-    providerPrompt: OPENAI_TRANSCRIPTION_PROMPT,
+    providerPrompt: config.openaiTranscriptionPrompt,
   });
 }
 
-function speechEvaluationCall(): PromptAuditCall {
+function speechEvaluationCall(config: TaskPromptConfig): PromptAuditCall {
   return promptCall({
     id: "speech_evaluation",
     title: "口說描述性分析",
     purpose: "依逐字稿產生研究用途的內容、語速與組織描述。",
     systemLabel: "Speech evaluation system prompt",
-    systemPrompt: SPEECH_EVALUATION_SYSTEM_PROMPT,
-    userPromptTemplate: SPEECH_EVALUATION_PROMPT_TEMPLATE,
+    systemPrompt: config.speechEvaluationSystemPrompt,
+    userPromptTemplate: config.speechEvaluationTemplate,
     variables: [
       "stage.id",
       "recording.transcriptJson",
@@ -88,29 +81,35 @@ function speechEvaluationCall(): PromptAuditCall {
   });
 }
 
-const stageCalls: Record<StageId, () => PromptAuditCall[]> = {
-  pretest: () => [transcriptionCall(), speechEvaluationCall()],
+const stageCalls: Record<
+  StageId,
+  (config: TaskPromptConfig) => PromptAuditCall[]
+> = {
+  pretest: (config) => [
+    transcriptionCall(config),
+    speechEvaluationCall(config),
+  ],
   visualization: () => [],
   self_concept_map: () => [],
-  image_analysis: () => [
+  image_analysis: (config) => [
     promptCall({
       id: "image_analysis",
       title: "手繪圖結構化分析",
       purpose: "從學生手繪圖提出可審核的英語詞彙與圖像證據。",
       systemLabel: "AI scaffold system prompt",
-      systemPrompt: BASE_SYSTEM_PROMPT,
-      userPromptTemplate: IMAGE_ANALYSIS_PROMPT_TEMPLATE,
+      systemPrompt: config.baseSystemPrompt,
+      userPromptTemplate: config.imageAnalysisTemplate,
       variables: ["task.title", "student.labels", "student.drawing"],
     }),
   ],
-  ai_concept_map: () => [
+  ai_concept_map: (config) => [
     promptCall({
       id: "concept_expansion",
       title: "概念圖擴展",
       purpose: "在保留學生原始概念的前提下提出少量可選節點與關係。",
       systemLabel: "AI scaffold system prompt",
-      systemPrompt: BASE_SYSTEM_PROMPT,
-      userPromptTemplate: CONCEPT_EXPANSION_PROMPT_TEMPLATE,
+      systemPrompt: config.baseSystemPrompt,
+      userPromptTemplate: config.conceptExpansionTemplate,
       variables: [
         "task.title",
         "student.conceptMapJson",
@@ -118,30 +117,35 @@ const stageCalls: Record<StageId, () => PromptAuditCall[]> = {
       ],
     }),
   ],
-  sentence_scaffold: () => [
+  sentence_scaffold: (config) => [
     promptCall({
       id: "sentence_scaffold",
       title: "漸進式句型鷹架",
       purpose: "產生關鍵詞、句首、示範句與轉折詞供學生選擇。",
       systemLabel: "AI scaffold system prompt",
-      systemPrompt: BASE_SYSTEM_PROMPT,
-      userPromptTemplate: SENTENCE_SCAFFOLD_PROMPT_TEMPLATE,
+      systemPrompt: config.baseSystemPrompt,
+      userPromptTemplate: config.sentenceScaffoldTemplate,
       variables: [
         "task.title",
         "student.finalConceptMapJson",
         "student.sentencesJson",
       ],
     }),
-    transcriptionCall(),
-    speechEvaluationCall(),
+    transcriptionCall(config),
+    speechEvaluationCall(config),
   ],
-  posttest: () => [transcriptionCall(), speechEvaluationCall()],
+  posttest: (config) => [
+    transcriptionCall(config),
+    speechEvaluationCall(config),
+  ],
 };
 
-export function promptAuditCatalog() {
+export function promptAuditCatalog(
+  config: TaskPromptConfig = DEFAULT_TASK_PROMPT_CONFIG,
+) {
   return {
-    baseSystemPrompt: BASE_SYSTEM_PROMPT,
-    baseSystemHash: hashForLog(BASE_SYSTEM_PROMPT),
+    baseSystemPrompt: config.baseSystemPrompt,
+    baseSystemHash: hashForLog(config.baseSystemPrompt),
     contextPolicy: {
       included: [
         "任務名稱 task.title",
@@ -158,7 +162,7 @@ export function promptAuditCatalog() {
     },
     stages: STAGES.map((stage) => ({
       ...stage,
-      calls: stageCalls[stage.id](),
+      calls: stageCalls[stage.id](config),
     })),
   };
 }

@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { promptAuditCatalog } from "@/lib/ai/prompt-audit";
 import {
+  DEFAULT_TASK_PROMPT_CONFIG,
   conceptExpansionPrompt,
   imageAnalysisPrompt,
   sentenceScaffoldPrompt,
   speechEvaluationPrompt,
   speechTranscriptionPrompt,
 } from "@/lib/ai/prompts";
+import {
+  DEFAULT_TASK_CONFIG,
+  normalizeTaskConfig,
+} from "@/lib/domain/default-task";
 
 describe("prompt audit catalog", () => {
   it("covers all seven research stages and their AI calls", () => {
@@ -68,5 +73,43 @@ describe("prompt audit catalog", () => {
         wordsPerMinute: 10,
       }),
     ).toContain("posttest");
+  });
+
+  it("uses task-specific templates in both runtime and audit views", () => {
+    const promptConfig = {
+      ...DEFAULT_TASK_PROMPT_CONFIG,
+      baseSystemPrompt: "Custom research system prompt.",
+      imageAnalysisTemplate:
+        "Custom image task: {{task.title}} / {{student.labels}}",
+    };
+    const catalog = promptAuditCatalog(promptConfig);
+    const imageCall = catalog.stages.find(
+      (stage) => stage.id === "image_analysis",
+    )?.calls[0];
+
+    expect(catalog.baseSystemPrompt).toBe("Custom research system prompt.");
+    expect(imageCall?.userPromptTemplate).toBe(
+      promptConfig.imageAnalysisTemplate,
+    );
+    expect(
+      imageAnalysisPrompt(
+        { taskTitle: "Pilot", studentLabels: ["crowd"] },
+        promptConfig.imageAnalysisTemplate,
+      ),
+    ).toBe("Custom image task: Pilot / crowd");
+  });
+
+  it("backfills prompt defaults for tasks created before editable prompts", () => {
+    const legacyConfig = {
+      locale: DEFAULT_TASK_CONFIG.locale,
+      targetLanguage: DEFAULT_TASK_CONFIG.targetLanguage,
+      consentText: DEFAULT_TASK_CONFIG.consentText,
+      retentionDays: DEFAULT_TASK_CONFIG.retentionDays,
+      stageConfig: DEFAULT_TASK_CONFIG.stageConfig,
+    };
+    const normalized = normalizeTaskConfig(legacyConfig);
+
+    expect(normalized.promptConfig).toEqual(DEFAULT_TASK_PROMPT_CONFIG);
+    expect(normalized.stageConfig).toEqual(DEFAULT_TASK_CONFIG.stageConfig);
   });
 });

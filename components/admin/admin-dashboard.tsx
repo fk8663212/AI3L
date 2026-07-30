@@ -28,6 +28,59 @@ import { STAGES, type StageId } from "@/lib/domain/stages";
 
 type Overview = Awaited<ReturnType<typeof adminOverview>>;
 type Tab = "overview" | "providers" | "tasks" | "prompts" | "research";
+type PromptConfig = Overview["taskDefaults"]["promptConfig"];
+
+const PROMPT_FIELDS: Array<{
+  key: keyof PromptConfig;
+  label: string;
+  help: string;
+}> = [
+  {
+    key: "baseSystemPrompt",
+    label: "AI 鷹架共用 System Prompt",
+    help: "套用於圖像分析、概念擴展與句型鷹架。",
+  },
+  {
+    key: "imageAnalysisTemplate",
+    label: "圖像分析 User Prompt",
+    help: "可用 {{task.title}}、{{student.labels}}；手繪圖會另外作為圖片輸入。",
+  },
+  {
+    key: "conceptExpansionTemplate",
+    label: "概念擴展 User Prompt",
+    help: "可用 {{task.title}}、{{student.conceptMapJson}}、{{student.acceptedVocabularyJson}}。",
+  },
+  {
+    key: "sentenceScaffoldTemplate",
+    label: "句型鷹架 User Prompt",
+    help: "可用 {{task.title}}、{{student.finalConceptMapJson}}、{{student.sentencesJson}}。",
+  },
+  {
+    key: "googleTranscriptionSystemPrompt",
+    label: "Gemini 轉錄 System Prompt",
+    help: "規範 Gemini 如何忠實處理學生錄音。",
+  },
+  {
+    key: "openaiTranscriptionPrompt",
+    label: "OpenAI 轉錄 Prompt",
+    help: "傳給 OpenAI 專用 audio transcription API。",
+  },
+  {
+    key: "transcriptionTemplate",
+    label: "Gemini 轉錄 User Prompt",
+    help: "可用 {{recording.durationSeconds}}；音訊會另外作為輸入。",
+  },
+  {
+    key: "speechEvaluationSystemPrompt",
+    label: "口說分析 System Prompt",
+    help: "限制研究分析範圍及結構化輸出。",
+  },
+  {
+    key: "speechEvaluationTemplate",
+    label: "口說分析 User Prompt",
+    help: "可用 {{stage.id}}、{{recording.transcriptJson}}、{{recording.durationSeconds}}、{{recording.wordsPerMinute}}。",
+  },
+];
 
 function ProviderCard({
   provider,
@@ -313,104 +366,271 @@ function TasksTab({
   ) => Promise<Record<string, unknown> | null>;
   setCodes: (value: Array<{ code: string; label: string }>) => void;
 }) {
-  const [title, setTitle] = useState("大稻埕年貨市場英語敘事");
-  const [slug, setSlug] = useState("dadaocheng-lunar-new-year");
-  const [description, setDescription] = useState(
-    "以手繪、概念圖與 AI 鷹架，將大稻埕年貨市場經驗轉化為可表達的英語敘事。",
-  );
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [title, setTitle] = useState("");
+  const [slug, setSlug] = useState("");
+  const [description, setDescription] = useState("");
   const [provider, setProvider] = useState<"google" | "openai">("google");
   const [modelId, setModelId] = useState("gemini-3.6-flash");
+  const [promptVersion, setPromptVersion] = useState("1.0.0");
+  const [stageConfig, setStageConfig] = useState(
+    () => structuredClone(data.taskDefaults.stageConfig),
+  );
+  const [promptConfig, setPromptConfig] = useState<PromptConfig>(
+    () => structuredClone(data.taskDefaults.promptConfig),
+  );
   const [message, setMessage] = useState("");
 
-  async function create(event: FormEvent) {
+  function resetEditor() {
+    setEditingId(null);
+    setTitle("");
+    setSlug("");
+    setDescription("");
+    setProvider("google");
+    setModelId("gemini-3.6-flash");
+    setPromptVersion("1.0.0");
+    setStageConfig(structuredClone(data.taskDefaults.stageConfig));
+    setPromptConfig(structuredClone(data.taskDefaults.promptConfig));
+  }
+
+  function editDraft(task: Overview["tasks"][number]) {
+    setEditingId(task.id);
+    setTitle(task.title);
+    setSlug(task.slug);
+    setDescription(task.description);
+    setProvider(task.provider as "google" | "openai");
+    setModelId(task.modelId);
+    setPromptVersion(task.promptVersion);
+    setStageConfig(structuredClone(task.config.stageConfig));
+    setPromptConfig(structuredClone(task.config.promptConfig));
+    setMessage("");
+    requestAnimationFrame(() =>
+      document
+        .getElementById("task-editor")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+    );
+  }
+
+  async function save(event: FormEvent) {
     event.preventDefault();
     const result = await action({
       action: "save_task",
+      id: editingId ?? undefined,
       title,
       slug,
       description,
       provider,
       modelId,
+      promptVersion,
       retentionDays: 180,
+      stageConfig,
+      promptConfig,
     });
-    if (result) setMessage("任務草稿已建立。");
+    if (result) {
+      setMessage(editingId ? "任務草稿已更新。" : "任務草稿已建立。");
+      resetEditor();
+    }
   }
 
   return (
     <div className="section-stack">
-      <div className="admin-card">
-        <h2>建立研究任務</h2>
-        <form className="split-grid" onSubmit={create}>
-          <div className="field">
-            <label htmlFor="task-title">任務名稱</label>
-            <input
-              id="task-title"
-              className="input"
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="task-slug">識別名稱</label>
-            <input
-              id="task-slug"
-              className="input"
-              value={slug}
-              onChange={(event) => setSlug(event.target.value)}
-            />
-          </div>
-          <div className="field" style={{ gridColumn: "1 / -1" }}>
-            <label htmlFor="task-description">研究任務說明</label>
-            <textarea
-              id="task-description"
-              className="textarea"
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="task-provider">供應商</label>
-            <select
-              id="task-provider"
-              className="select"
-              value={provider}
-              onChange={(event) => {
-                const next = event.target.value as "google" | "openai";
-                setProvider(next);
-                setModelId(
-                  next === "google" ? "gemini-3.6-flash" : "gpt-5.6-terra",
-                );
-              }}
-            >
-              <option value="google">Google Gemini</option>
-              <option value="openai">OpenAI</option>
-            </select>
-          </div>
-          <div className="field">
-            <label htmlFor="task-model">模型</label>
-            <select
-              id="task-model"
-              className="select"
-              value={modelId}
-              onChange={(event) => setModelId(event.target.value)}
-            >
-              {data.models
-                .filter((model) => model.provider === provider)
-                .map((model) => (
-                  <option value={model.modelId} key={model.id}>
-                    {model.displayName}
-                  </option>
-                ))}
-            </select>
-          </div>
+      {message ? <div className="success-banner">{message}</div> : null}
+
+      <div className="admin-card" id="task-editor">
+        <div className="task-editor-heading">
           <div>
-            <button className="button" type="submit">
-              <Plus size={16} />
-              建立草稿
+            <h2>{editingId ? "編輯任務草稿" : "建立研究任務"}</h2>
+            <p>
+              草稿可編輯階段指示與 Prompt；發布後會鎖定為不可變研究版本。
+            </p>
+          </div>
+          {editingId ? (
+            <button
+              className="button secondary"
+              type="button"
+              onClick={resetEditor}
+            >
+              <X size={16} />
+              取消編輯
             </button>
+          ) : null}
+        </div>
+
+        <form className="task-editor-form" onSubmit={save}>
+          <div className="split-grid">
+            <div className="field">
+              <label htmlFor="task-title">任務名稱</label>
+              <input
+                id="task-title"
+                className="input"
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                placeholder="例如：大稻埕市場英語敘事"
+                minLength={2}
+                maxLength={180}
+                required
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="task-slug">唯一識別名稱</label>
+              <input
+                id="task-slug"
+                className="input"
+                value={slug}
+                onChange={(event) => setSlug(event.target.value)}
+                placeholder="例如：dadaocheng-pilot-2"
+                pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
+                minLength={3}
+                maxLength={120}
+                required
+              />
+              <small>只能使用小寫英文字母、數字與連字號，不可與現有任務重複。</small>
+            </div>
+            <div className="field" style={{ gridColumn: "1 / -1" }}>
+              <label htmlFor="task-description">研究任務摘要</label>
+              <textarea
+                id="task-description"
+                className="textarea"
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                placeholder="此文字只顯示於介面，不會送入 AI。"
+                minLength={10}
+                maxLength={2000}
+                required
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="task-provider">供應商</label>
+              <select
+                id="task-provider"
+                className="select"
+                value={provider}
+                onChange={(event) => {
+                  const next = event.target.value as "google" | "openai";
+                  setProvider(next);
+                  setModelId(
+                    next === "google" ? "gemini-3.6-flash" : "gpt-5.6-terra",
+                  );
+                }}
+              >
+                <option value="google">Google Gemini</option>
+                <option value="openai">OpenAI</option>
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="task-model">模型</label>
+              <select
+                id="task-model"
+                className="select"
+                value={modelId}
+                onChange={(event) => setModelId(event.target.value)}
+              >
+                {data.models
+                  .filter((model) => model.provider === provider)
+                  .map((model) => (
+                    <option value={model.modelId} key={model.id}>
+                      {model.displayName}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="task-prompt-version">Prompt 版本</label>
+              <input
+                id="task-prompt-version"
+                className="input"
+                value={promptVersion}
+                onChange={(event) => setPromptVersion(event.target.value)}
+                pattern="[A-Za-z0-9][A-Za-z0-9._-]*"
+                placeholder="例如：1.0.0 或 pilot-a"
+                maxLength={32}
+                required
+              />
+              <small>用來識別本次研究採用的 Prompt 組合；發布後鎖定。</small>
+            </div>
+          </div>
+
+          <details className="task-config-section" open>
+            <summary>
+              <div>
+                <strong>七階段學生指示</strong>
+                <small>這些文字會顯示在學生的對話工作區。</small>
+              </div>
+              <Workflow size={18} />
+            </summary>
+            <div className="task-stage-editor-grid">
+              {STAGES.map((stage) => (
+                <div className="field" key={stage.id}>
+                  <label htmlFor={`instruction-${stage.id}`}>
+                    {stage.order}. {stage.title}
+                  </label>
+                  <textarea
+                    className="textarea"
+                    id={`instruction-${stage.id}`}
+                    value={stageConfig[stage.id].instruction}
+                    onChange={(event) =>
+                      setStageConfig((current) => ({
+                        ...current,
+                        [stage.id]: {
+                          ...current[stage.id],
+                          instruction: event.target.value,
+                        },
+                      }))
+                    }
+                    minLength={5}
+                    maxLength={2000}
+                    required
+                  />
+                </div>
+              ))}
+            </div>
+          </details>
+
+          <details className="task-config-section">
+            <summary>
+              <div>
+                <strong>AI System Prompt 與階段模板</strong>
+                <small>
+                  使用雙大括號保留執行時變數；可在發布前依研究設計調整。
+                </small>
+              </div>
+              <Braces size={18} />
+            </summary>
+            <div className="task-prompt-editor-list">
+              {PROMPT_FIELDS.map((field) => (
+                <div className="field" key={field.key}>
+                  <label htmlFor={`prompt-${field.key}`}>{field.label}</label>
+                  <small>{field.help}</small>
+                  <textarea
+                    className="textarea task-prompt-textarea"
+                    id={`prompt-${field.key}`}
+                    value={promptConfig[field.key]}
+                    onChange={(event) =>
+                      setPromptConfig((current) => ({
+                        ...current,
+                        [field.key]: event.target.value,
+                      }))
+                    }
+                    spellCheck={false}
+                    minLength={10}
+                    maxLength={20000}
+                    required
+                  />
+                </div>
+              ))}
+            </div>
+          </details>
+
+          <div className="task-editor-actions">
+            <button className="button" type="submit">
+              {editingId ? <CheckCircle2 size={16} /> : <Plus size={16} />}
+              {editingId ? "儲存草稿變更" : "建立可編輯草稿"}
+            </button>
+            <span>
+              發布前請到「Prompt 與階段」進行最終稽核。
+            </span>
           </div>
         </form>
-        {message ? <div className="success-banner">{message}</div> : null}
       </div>
 
       <div className="table-wrap">
@@ -444,15 +664,25 @@ function TasksTab({
                 <td>
                   <div className="stage-panel-row">
                     {task.status === "draft" ? (
-                      <button
-                        className="button secondary"
-                        type="button"
-                        onClick={() =>
-                          action({ action: "publish_task", taskId: task.id })
-                        }
-                      >
-                        發布
-                      </button>
+                      <>
+                        <button
+                          className="button secondary"
+                          type="button"
+                          onClick={() => editDraft(task)}
+                        >
+                          <Settings2 size={15} />
+                          編輯草稿
+                        </button>
+                        <button
+                          className="button secondary"
+                          type="button"
+                          onClick={() =>
+                            action({ action: "publish_task", taskId: task.id })
+                          }
+                        >
+                          發布
+                        </button>
+                      </>
                     ) : null}
                     {task.status === "published" ? (
                       <button
@@ -519,11 +749,11 @@ function PromptAuditTab({ data }: { data: Overview }) {
   const [taskId, setTaskId] = useState(firstPublished?.id ?? "");
   const [stageId, setStageId] = useState<StageId>("pretest");
   const task = data.tasks.find((item) => item.id === taskId) ?? firstPublished;
+  const audit = task?.promptAudit;
   const stage =
-    data.promptAudit.stages.find((item) => item.id === stageId) ??
-    data.promptAudit.stages[0];
+    audit?.stages.find((item) => item.id === stageId) ?? audit?.stages[0];
 
-  if (!task || !stage) {
+  if (!task || !audit || !stage) {
     return <div className="info-banner">尚未建立可供檢視的研究任務。</div>;
   }
 
@@ -593,7 +823,7 @@ function PromptAuditTab({ data }: { data: Overview }) {
         <div className="admin-card">
           <h3>會送入 AI 的資料</h3>
           <ul className="prompt-context-list included">
-            {data.promptAudit.contextPolicy.included.map((item) => (
+            {audit.contextPolicy.included.map((item) => (
               <li key={item}>
                 <CheckCircle2 size={15} />
                 {item}
@@ -604,7 +834,7 @@ function PromptAuditTab({ data }: { data: Overview }) {
         <div className="admin-card">
           <h3>不會送入 AI 的資料</h3>
           <ul className="prompt-context-list excluded">
-            {data.promptAudit.contextPolicy.excluded.map((item) => (
+            {audit.contextPolicy.excluded.map((item) => (
               <li key={item}>
                 <LockKeyhole size={15} />
                 {item}
@@ -624,9 +854,9 @@ function PromptAuditTab({ data }: { data: Overview }) {
         </summary>
         <PromptCode
           label="BASE_SYSTEM_PROMPT"
-          hash={data.promptAudit.baseSystemHash}
+          hash={audit.baseSystemHash}
         >
-          {data.promptAudit.baseSystemPrompt}
+          {audit.baseSystemPrompt}
         </PromptCode>
       </details>
 
@@ -636,7 +866,7 @@ function PromptAuditTab({ data }: { data: Overview }) {
             <Workflow size={17} />
             七階段流程
           </div>
-          {data.promptAudit.stages.map((item) => (
+          {audit.stages.map((item) => (
             <button
               className={stage.id === item.id ? "active" : ""}
               type="button"
