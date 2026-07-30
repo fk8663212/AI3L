@@ -670,6 +670,21 @@ button {
   transition: width 120ms ease-out;
 }
 
+.upload-progress.indeterminate > span {
+  width: 42%;
+  animation: upload-indeterminate 1.05s ease-in-out infinite;
+}
+
+@keyframes upload-indeterminate {
+  from {
+    transform: translateX(-105%);
+  }
+
+  to {
+    transform: translateX(345%);
+  }
+}
+
 .upload-cancel-button {
   display: flex;
   width: fit-content;

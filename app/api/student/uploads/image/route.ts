@@ -1,6 +1,6 @@
 import { del, put } from "@vercel/blob";
 import { and, eq, isNull } from "drizzle-orm";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { z } from "zod";
 import { getDb } from "@/lib/db/client";
 import { artifacts, studentSessions } from "@/lib/db/schema";
@@ -19,7 +19,7 @@ import {
   saveArtifact,
 } from "@/lib/services/session-service";
 
-export const maxDuration = 60;
+export const maxDuration = 180;
 
 const MAX_IMAGE_SIZE_BYTES = 4 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set([
@@ -103,10 +103,12 @@ export async function POST(request: Request) {
       },
     });
     if (stage === "visualization") {
-      await precomputeImageAnalysisAfterUpload({
-        sessionId: claims.sessionId,
-        sourceImageArtifactId: savedImage.id,
-      });
+      after(() =>
+        precomputeImageAnalysisAfterUpload({
+          sessionId: claims.sessionId,
+          sourceImageArtifactId: savedImage.id,
+        }),
+      );
     }
 
     return NextResponse.json({

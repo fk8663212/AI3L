@@ -143,6 +143,9 @@ export function ImageUploader({
     setStep(isHeicFile(file) ? "converting" : "preparing");
     setProgress(0);
     try {
+      await new Promise<void>((resolve) => {
+        window.requestAnimationFrame(() => resolve());
+      });
       const normalized = await normalizeImage(file);
       if (cancelRequested.current) throw new UploadCancelledError();
       setStep("uploading");
@@ -262,6 +265,10 @@ export function ImageUploader({
             : stage === "visualization"
               ? "圖片已保存，正在請 AI 預先辨識更多單字…"
               : "正在確認圖片已保存…";
+  const progressIsDeterminate =
+    step === "uploading" || step === "saving";
+  const displayedProgress =
+    step === "saving" ? 100 : progress;
 
   return (
     <div>
@@ -284,11 +291,26 @@ export function ImageUploader({
               <span role="status" aria-live="polite">
                 {busyText}
               </span>
-              {step === "uploading" && progress > 0 ? (
-                <span className="upload-progress" aria-hidden="true">
-                  <span style={{ width: `${progress}%` }} />
-                </span>
-              ) : null}
+              <span
+                className={`upload-progress${
+                  progressIsDeterminate ? "" : " indeterminate"
+                }`}
+                role="progressbar"
+                aria-label={busyText}
+                aria-valuemin={progressIsDeterminate ? 0 : undefined}
+                aria-valuemax={progressIsDeterminate ? 100 : undefined}
+                aria-valuenow={
+                  progressIsDeterminate ? displayedProgress : undefined
+                }
+              >
+                <span
+                  style={
+                    progressIsDeterminate
+                      ? { width: `${displayedProgress}%` }
+                      : undefined
+                  }
+                />
+              </span>
             </>
           ) : (
             <>

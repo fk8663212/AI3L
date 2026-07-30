@@ -1,5 +1,5 @@
 import { del, get, head } from "@vercel/blob";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { z } from "zod";
 import {
   apiErrorResponse,
@@ -95,10 +95,12 @@ export async function POST(request: Request) {
         },
       });
       if (body.stage === "visualization") {
-        await precomputeImageAnalysisAfterUpload({
-          sessionId: claims.sessionId,
-          sourceImageArtifactId: savedImage.id,
-        });
+        after(() =>
+          precomputeImageAnalysisAfterUpload({
+            sessionId: claims.sessionId,
+            sourceImageArtifactId: savedImage.id,
+          }),
+        );
       }
     } else {
       if (!metadata.contentType.startsWith("audio/")) {
