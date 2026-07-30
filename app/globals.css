@@ -643,6 +643,24 @@ button {
   color: var(--ink);
 }
 
+.upload-progress {
+  display: block;
+  width: min(260px, 68vw);
+  height: 6px;
+  margin: 12px auto 0;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e9e2d8;
+}
+
+.upload-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--rust);
+  transition: width 120ms ease-out;
+}
+
 .chip-list {
   display: flex;
   flex-wrap: wrap;
