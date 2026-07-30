@@ -28,6 +28,10 @@ import { useMemo, useState, type FormEvent } from "react";
 import type { adminOverview } from "@/lib/services/admin-service";
 import { STAGES, type StageId } from "@/lib/domain/stages";
 import { taskDeletionConfirmation } from "@/lib/domain/task-deletion";
+import {
+  MIN_STAGE_OVERRIDE_REASON_LENGTH,
+  stageOverrideReasonReady,
+} from "@/lib/domain/stage-override";
 
 type Overview = Awaited<ReturnType<typeof adminOverview>>;
 type Tab = "overview" | "providers" | "tasks" | "prompts" | "research";
@@ -1122,17 +1126,31 @@ function PromptAuditTab({ data }: { data: Overview }) {
 function ResearchTab({
   data,
   action,
+  error,
 }: {
   data: Overview;
   action: (
     payload: Record<string, unknown>,
   ) => Promise<Record<string, unknown> | null>;
+  error: string;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [stage, setStage] = useState<StageId>("pretest");
   const [reason, setReason] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [notice, setNotice] = useState("");
+  const normalizedReasonLength = reason.trim().length;
+
+  function closeOverride() {
+    setSelected(null);
+    setReason("");
+    setSubmitted(false);
+  }
+
   return (
     <div className="section-stack">
+      {notice ? <div className="success-banner">{notice}</div> : null}
       <div className="admin-card">
         <div
           style={{
@@ -1181,6 +1199,9 @@ function ResearchTab({
                     onClick={() => {
                       setSelected(session.id);
                       setStage(session.currentStage);
+                      setReason("");
+                      setSubmitted(false);
+                      setNotice("");
                     }}
                   >
                     <Settings2 size={15} />
@@ -1199,7 +1220,7 @@ function ResearchTab({
               className="button ghost"
               style={{ float: "right" }}
               type="button"
-              onClick={() => setSelected(null)}
+              onClick={closeOverride}
             >
               <X size={18} />
             </button>
@@ -1228,25 +1249,42 @@ function ResearchTab({
                 onChange={(event) => setReason(event.target.value)}
                 placeholder="例如：學生誤傳圖片，需要退回重新提交。"
               />
+              <small>
+                至少 {MIN_STAGE_OVERRIDE_REASON_LENGTH} 個字；目前{" "}
+                {normalizedReasonLength} 個字。
+              </small>
             </div>
+            {submitted && error ? (
+              <div className="error-banner">{error}</div>
+            ) : null}
             <button
               className="button"
               type="button"
-              disabled={reason.length < 5}
+              disabled={!stageOverrideReasonReady(reason) || submitting}
               onClick={async () => {
+                setSubmitting(true);
+                setSubmitted(true);
                 const result = await action({
                   action: "override_stage",
                   sessionId: selected,
                   stageId: stage,
                   reason,
                 });
-                if (result !== null) {
-                  setSelected(null);
-                  setReason("");
+                setSubmitting(false);
+                if (result) {
+                  setNotice(
+                    `階段已從 ${String(result.from)} 覆寫為 ${String(result.to)}，目前為第 ${String(result.attempt)} 次嘗試。`,
+                  );
+                  closeOverride();
                 }
               }}
             >
-              確認覆寫並留下稽核紀錄
+              {submitting ? (
+                <LoaderCircle className="spin" size={16} />
+              ) : (
+                <Settings2 size={16} />
+              )}
+              {submitting ? "正在覆寫…" : "確認覆寫並留下稽核紀錄"}
             </button>
           </div>
         </div>
@@ -1390,7 +1428,7 @@ export function AdminDashboard({ initialData }: { initialData: Overview }) {
         ) : null}
         {tab === "prompts" ? <PromptAuditTab data={data} /> : null}
         {tab === "research" ? (
-          <ResearchTab data={data} action={action} />
+          <ResearchTab data={data} action={action} error={error} />
         ) : null}
       </section>
 

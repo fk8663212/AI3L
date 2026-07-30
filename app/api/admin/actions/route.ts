@@ -18,6 +18,7 @@ import {
 } from "@/lib/security/request";
 import { getAdminClaims } from "@/lib/security/session";
 import { STAGE_IDS } from "@/lib/domain/stages";
+import { MIN_STAGE_OVERRIDE_REASON_LENGTH } from "@/lib/domain/stage-override";
 
 const providerSchema = z.enum(["openai", "google"]);
 const stageInstructionSchema = z.object({
@@ -115,7 +116,11 @@ const bodySchema = z.discriminatedUnion("action", [
     action: z.literal("override_stage"),
     sessionId: z.string().uuid(),
     stageId: z.enum(STAGE_IDS),
-    reason: z.string().min(5).max(500),
+    reason: z
+      .string()
+      .trim()
+      .min(MIN_STAGE_OVERRIDE_REASON_LENGTH)
+      .max(500),
   }),
 ]);
 
@@ -154,7 +159,7 @@ export async function POST(request: Request) {
         data = { codes: await generateAccessCodes(body.taskId, body.count) };
         break;
       case "override_stage":
-        await overrideSessionStage(body);
+        data = await overrideSessionStage(body);
         break;
     }
 

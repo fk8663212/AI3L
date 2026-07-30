@@ -20,6 +20,7 @@ import {
   taskDeletionAllowed,
   taskDeletionConfirmation,
 } from "@/lib/domain/task-deletion";
+import { normalizeStageOverrideReason } from "@/lib/domain/stage-override";
 import type { AIProviderName } from "@/lib/ai/provider";
 import { testProviderConnection } from "@/lib/ai/provider";
 import { promptAuditCatalog } from "@/lib/ai/prompt-audit";
@@ -568,51 +569,96 @@ export async function overrideSessionStage(input: {
   reason: string;
 }) {
   const db = getDb();
-  const session = await db.query.studentSessions.findFirst({
-    where: eq(studentSessions.id, input.sessionId),
-  });
-  if (!session) throw new ApiError(404, "SESSION_NOT_FOUND", "找不到工作階段。");
+  const reason = normalizeStageOverrideReason(input.reason);
+  return db.transaction(async (tx) => {
+    const sessionRows = await tx
+      .select()
+      .from(studentSessions)
+      .where(eq(studentSessions.id, input.sessionId))
+      .limit(1);
+    const session = sessionRows[0];
+    if (!session) {
+      throw new ApiError(404, "SESSION_NOT_FOUND", "找不到工作階段。");
+    }
 
-  await db
-    .update(stageAttempts)
-    .set({ supersededAt: new Date(), status: "completed" })
-    .where(
-      and(
-        eq(stageAttempts.sessionId, input.sessionId),
-        eq(stageAttempts.status, "active"),
-      ),
-    );
-  const attemptRows = await db
-    .select({ value: sql<number>`coalesce(max(${stageAttempts.attempt}), 0)` })
-    .from(stageAttempts)
-    .where(
-      and(
-        eq(stageAttempts.sessionId, input.sessionId),
-        eq(stageAttempts.stageId, input.stageId),
-      ),
-    );
-  const attempt = Number(attemptRows[0]?.value ?? 0) + 1;
-  await db.insert(stageAttempts).values({
-    sessionId: input.sessionId,
-    stageId: input.stageId,
-    attempt,
-    status: "active",
-    overrideReason: input.reason,
-  });
-  await db
-    .update(studentSessions)
-    .set({
-      currentStage: input.stageId,
-      stageStatus: "active",
+    const now = new Date();
+    const updated = await tx
+      .update(studentSessions)
+      .set({
+        currentStage: input.stageId,
+        stageStatus: "active",
+        stateVersion: session.stateVersion + 1,
+        completedAt: null,
+        lastSeenAt: now,
+      })
+      .where(
+        and(
+          eq(studentSessions.id, input.sessionId),
+          eq(studentSessions.stateVersion, session.stateVersion),
+        ),
+      )
+      .returning({ id: studentSessions.id });
+    if (!updated[0]) {
+      throw new ApiError(
+        409,
+        "STALE_SESSION",
+        "工作階段已被更新，請重新整理後再試。",
+      );
+    }
+
+    await tx
+      .update(stageAttempts)
+      .set({
+        supersededAt: now,
+        completedAt: now,
+        status: "completed",
+      })
+      .where(
+        and(
+          eq(stageAttempts.sessionId, input.sessionId),
+          eq(stageAttempts.status, "active"),
+        ),
+      );
+    const attemptRows = await tx
+      .select({
+        value: sql<number>`coalesce(max(${stageAttempts.attempt}), 0)`,
+      })
+      .from(stageAttempts)
+      .where(
+        and(
+          eq(stageAttempts.sessionId, input.sessionId),
+          eq(stageAttempts.stageId, input.stageId),
+        ),
+      );
+    const attempt = Number(attemptRows[0]?.value ?? 0) + 1;
+    await tx.insert(stageAttempts).values({
+      sessionId: input.sessionId,
+      stageId: input.stageId,
+      attempt,
+      status: "active",
+      overrideReason: reason,
+    });
+    await tx.insert(auditLogs).values({
+      actor: "admin",
+      action: "session.stage_overridden",
+      targetType: "session",
+      targetId: input.sessionId,
+      detail: {
+        from: session.currentStage,
+        to: input.stageId,
+        reason,
+        previousStateVersion: session.stateVersion,
+        stateVersion: session.stateVersion + 1,
+        attempt,
+      },
+    });
+    return {
+      sessionId: input.sessionId,
+      from: session.currentStage,
+      to: input.stageId,
       stateVersion: session.stateVersion + 1,
-      completedAt: null,
-      lastSeenAt: new Date(),
-    })
-    .where(eq(studentSessions.id, input.sessionId));
-  await audit("session.stage_overridden", "session", input.sessionId, {
-    from: session.currentStage,
-    to: input.stageId,
-    reason: input.reason,
+      attempt,
+    };
   });
 }
 
