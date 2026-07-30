@@ -2170,3 +2170,606 @@ button {
     gap: 9px;
   }
 }
+
+/* Admin session preview and learning-record print surface */
+.session-preview-page {
+  min-height: 100vh;
+  padding: 22px;
+  background: #eceae6;
+}
+
+.session-preview-toolbar {
+  position: sticky;
+  z-index: 20;
+  top: 12px;
+  width: min(100%, 1180px);
+  margin: 0 auto 18px;
+  padding: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 12px 35px rgba(21, 34, 56, 0.12);
+  backdrop-filter: blur(12px);
+}
+
+.session-view-switcher {
+  padding: 4px;
+  display: flex;
+  gap: 4px;
+  border-radius: 12px;
+  background: #eeece8;
+}
+
+.session-view-switcher a {
+  min-height: 38px;
+  padding: 8px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border-radius: 9px;
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.session-view-switcher a.active {
+  color: var(--ink);
+  background: white;
+  box-shadow: 0 2px 8px rgba(21, 34, 56, 0.08);
+}
+
+.session-preview-content {
+  width: min(100%, 1180px);
+  margin: 0 auto;
+}
+
+.session-metadata {
+  margin-bottom: 14px;
+  padding: 16px 18px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: white;
+}
+
+.session-metadata div {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.session-metadata span {
+  color: var(--ink-soft);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.session-metadata strong {
+  overflow-wrap: anywhere;
+  font-size: 0.86rem;
+}
+
+.session-readonly-banner {
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.session-readonly-workspace {
+  min-height: 720px;
+  height: calc(100vh - 190px);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 18px 45px rgba(21, 34, 56, 0.12);
+}
+
+.session-readonly-workspace .chat-shell {
+  height: 100%;
+}
+
+.session-preview-page .annotated-image-card .button {
+  display: none;
+}
+
+.artifact-load-error {
+  min-height: 160px;
+  display: grid;
+  place-items: center;
+  border: 1px dashed #bf4a3b;
+  border-radius: 12px;
+  color: #8f3328;
+  background: #fff4f1;
+  font-weight: 800;
+}
+
+.learning-record-title {
+  margin-bottom: 14px;
+  padding: 28px 30px;
+  border-radius: 18px;
+  color: white;
+  background:
+    radial-gradient(circle at 90% 15%, rgba(232, 184, 83, 0.35), transparent 15rem),
+    #152238;
+}
+
+.learning-record-title h1 {
+  margin: 4px 0 5px;
+  font-size: clamp(1.8rem, 4vw, 2.7rem);
+  letter-spacing: -0.04em;
+}
+
+.learning-record-title p {
+  margin: 0;
+}
+
+.learning-record-title .eyebrow {
+  color: #f0ca70;
+}
+
+.learning-stage-list {
+  display: grid;
+  gap: 18px;
+}
+
+.learning-stage {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  overflow: hidden;
+  background: white;
+  box-shadow: 0 10px 28px rgba(21, 34, 56, 0.07);
+}
+
+.learning-stage-header {
+  padding: 18px 20px;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  border-bottom: 1px solid var(--line);
+  background: #faf8f4;
+}
+
+.learning-stage-header > span {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: white;
+  background: #b84a3a;
+  font-weight: 900;
+}
+
+.learning-stage-header h2,
+.learning-stage-header p {
+  margin: 0;
+}
+
+.learning-stage-header h2 {
+  font-size: 1.18rem;
+}
+
+.learning-stage-header p {
+  margin-top: 4px;
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+}
+
+.learning-stage-content {
+  padding: 20px;
+  display: grid;
+  gap: 22px;
+}
+
+.learning-record-group {
+  display: grid;
+  gap: 12px;
+}
+
+.learning-record-group > h3 {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.learning-stage-empty {
+  margin: 0;
+  padding: 22px;
+  color: var(--ink-soft);
+}
+
+.learning-artifact {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fffdf9;
+}
+
+.learning-artifact.superseded {
+  border-style: dashed;
+  background: #f7f5f1;
+}
+
+.learning-artifact > header {
+  margin-bottom: 13px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.learning-artifact h4,
+.learning-artifact small {
+  margin: 0;
+}
+
+.learning-artifact small {
+  color: var(--ink-soft);
+}
+
+.artifact-status-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.tag.warning {
+  color: #8a4d08;
+  background: #fff1ce;
+}
+
+.session-audio-record {
+  display: grid;
+  gap: 10px;
+}
+
+.session-audio-record dl,
+.session-evaluation dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.session-audio-record dl > div,
+.session-evaluation dl > div {
+  padding: 10px;
+  border-radius: 10px;
+  background: #f3f1ed;
+}
+
+.session-audio-record dt,
+.session-evaluation dt {
+  color: var(--ink-soft);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.session-audio-record dd,
+.session-evaluation dd {
+  margin: 4px 0 0;
+  font-weight: 800;
+}
+
+.session-audio-record audio {
+  width: 100%;
+}
+
+.session-audio-link {
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.session-transcript > p {
+  margin-top: 0;
+  font-size: 1rem;
+  line-height: 1.75;
+}
+
+.session-transcript ol {
+  margin: 12px 0 0;
+  padding-left: 22px;
+  display: grid;
+  gap: 7px;
+}
+
+.session-transcript li {
+  padding-left: 5px;
+}
+
+.session-transcript time {
+  margin-right: 9px;
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.72rem;
+}
+
+.session-evaluation p {
+  margin: 12px 0 0;
+  line-height: 1.65;
+}
+
+.session-json-fallback {
+  max-width: 100%;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  border-radius: 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: #27364b;
+  background: #f3f1ed;
+  font: 0.72rem/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.session-sentence-list p,
+.session-message-text {
+  margin: 0 0 7px;
+  white-space: pre-wrap;
+}
+
+.session-filter-bar {
+  padding: 16px;
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(200px, 0.7fr) auto;
+  align-items: end;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  background: white;
+}
+
+.session-filter-bar .field {
+  margin: 0;
+}
+
+.table-action-list {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.table-action-list .button {
+  white-space: nowrap;
+}
+
+.table-empty-state {
+  padding: 22px;
+  color: var(--ink-soft);
+  text-align: center;
+}
+
+.session-pagination {
+  padding: 4px 2px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--ink-soft);
+  font-size: 0.8rem;
+}
+
+.session-pagination > div {
+  display: flex;
+  gap: 7px;
+}
+
+@media (max-width: 760px) {
+  .session-preview-page {
+    padding: 10px;
+  }
+
+  .session-preview-toolbar {
+    position: static;
+    flex-wrap: wrap;
+  }
+
+  .session-view-switcher {
+    order: 3;
+    width: 100%;
+  }
+
+  .session-view-switcher a {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .session-metadata {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .session-readonly-workspace {
+    height: auto;
+    min-height: 0;
+  }
+
+  .learning-stage-content {
+    padding: 14px;
+  }
+
+  .session-filter-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .session-pagination {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@page {
+  size: A4 portrait;
+  margin: 14mm;
+}
+
+@media print {
+  html,
+  body {
+    width: auto;
+    min-height: 0;
+    overflow: visible !important;
+    color: #111827;
+    background: white !important;
+  }
+
+  body {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  [data-print-hidden],
+  .session-preview-page button,
+  .session-preview-page audio {
+    display: none !important;
+  }
+
+  .session-preview-page {
+    min-height: 0;
+    padding: 0;
+    background: white;
+  }
+
+  .session-preview-content {
+    width: 100%;
+    margin: 0;
+  }
+
+  .session-metadata {
+    padding: 9mm 0 5mm;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 3mm 8mm;
+    border: 0;
+    border-bottom: 1px solid #cfd4dc;
+    border-radius: 0;
+  }
+
+  .session-readonly-banner {
+    margin: 4mm 0;
+    padding: 3mm;
+  }
+
+  .session-readonly-workspace {
+    min-height: 0;
+    height: auto;
+    display: block;
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .session-readonly-workspace .stage-rail {
+    display: none;
+  }
+
+  .session-readonly-workspace .chat-shell {
+    min-height: 0;
+    height: auto;
+    display: block;
+    overflow: visible;
+    background: white;
+  }
+
+  .session-readonly-workspace .chat-header {
+    position: static;
+    min-height: 0;
+    padding: 5mm 0;
+    border-bottom: 1px solid #cfd4dc;
+    background: white;
+    backdrop-filter: none;
+  }
+
+  .session-readonly-workspace .chat-scroll {
+    padding: 5mm 0 0;
+    overflow: visible;
+  }
+
+  .session-readonly-workspace .chat-column {
+    width: 100%;
+  }
+
+  .learning-record-title {
+    padding: 9mm;
+    border-radius: 0;
+  }
+
+  .learning-stage-list {
+    gap: 5mm;
+  }
+
+  .learning-stage {
+    overflow: visible;
+    border-color: #cfd4dc;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .learning-stage-header {
+    padding: 4mm;
+  }
+
+  .learning-stage-content {
+    padding: 4mm;
+    gap: 5mm;
+  }
+
+  .learning-record-group {
+    display: block;
+  }
+
+  .learning-record-group > * + * {
+    margin-top: 3mm;
+  }
+
+  .learning-record-group > h3 {
+    break-after: avoid-page;
+    page-break-after: avoid;
+  }
+
+  .learning-record-group > h3 + * {
+    break-before: avoid-page;
+    page-break-before: avoid;
+  }
+
+  .learning-artifact,
+  .message-bubble,
+  .artifact-card,
+  .concept-map-card,
+  .annotated-image-card,
+  .session-evaluation,
+  .session-transcript {
+    break-inside: avoid;
+  }
+
+  .artifact-image,
+  .annotated-image-stage,
+  .concept-map-card,
+  .concept-graph {
+    max-width: 100% !important;
+    max-height: 235mm;
+    object-fit: contain;
+  }
+
+  .session-audio-link {
+    display: inline !important;
+  }
+
+  .session-json-fallback {
+    max-height: none;
+    overflow: visible;
+  }
+}

@@ -214,7 +214,12 @@ export async function recordConsent(sessionId: string): Promise<void> {
     .where(eq(studentSessions.id, sessionId));
 }
 
-export async function getSessionView(sessionId: string): Promise<SessionView> {
+export async function getSessionView(
+  sessionId: string,
+  options?: {
+    artifactUrl?: (artifactId: string) => string;
+  },
+): Promise<SessionView> {
   const db = getDb();
   const joined = await db
     .select({ session: studentSessions, task: tasks })
@@ -311,7 +316,8 @@ export async function getSessionView(sessionId: string): Promise<SessionView> {
         mimeType: artifact.mimeType,
         sizeBytes: artifact.sizeBytes,
         downloadUrl: artifact.storageLocator
-          ? `/api/student/artifacts/${artifact.id}`
+          ? (options?.artifactUrl?.(artifact.id) ??
+            `/api/student/artifacts/${artifact.id}`)
           : null,
         createdAt: artifact.createdAt.toISOString(),
       })),

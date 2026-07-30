@@ -5,10 +5,14 @@ import {
   adminOverview,
   bootstrapDefaults,
 } from "@/lib/services/admin-service";
+import { listAdminSessions } from "@/lib/services/admin-session-service";
 
 export default async function AdminPage() {
   if (!(await getAdminClaims())) redirect("/admin/login");
   await bootstrapDefaults();
-  const overview = await adminOverview();
-  return <AdminDashboard initialData={overview} />;
+  const [overview, sessions] = await Promise.all([
+    adminOverview(),
+    listAdminSessions(),
+  ]);
+  return <AdminDashboard initialData={overview} initialSessions={sessions} />;
 }

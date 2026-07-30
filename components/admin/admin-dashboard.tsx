@@ -4,9 +4,12 @@ import {
   Bot,
   Braces,
   AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
   CheckCircle2,
   Database,
   Download,
+  Eye,
   FileText,
   KeyRound,
   LayoutDashboard,
@@ -15,7 +18,9 @@ import {
   LockKeyhole,
   LogOut,
   Plus,
+  Printer,
   RefreshCw,
+  Search,
   ShieldCheck,
   Settings2,
   Trash2,
@@ -26,6 +31,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useMemo, useState, type FormEvent } from "react";
 import type { adminOverview } from "@/lib/services/admin-service";
+import type { AdminSessionListPage } from "@/lib/services/admin-session-service";
 import { STAGES, type StageId } from "@/lib/domain/stages";
 import { taskDeletionConfirmation } from "@/lib/domain/task-deletion";
 import {
@@ -212,7 +218,7 @@ function ProviderCard({
 }
 
 function OverviewTab({ data }: { data: Overview }) {
-  const completed = data.sessions.filter((session) => session.completedAt).length;
+  const completed = data.sessionStats.completed;
   return (
     <div className="section-stack">
       <div className="metric-grid">
@@ -222,13 +228,13 @@ function OverviewTab({ data }: { data: Overview }) {
         </div>
         <div className="metric-card">
           <span>學生工作階段</span>
-          <strong>{data.sessions.length}</strong>
+          <strong>{data.sessionStats.total}</strong>
         </div>
         <div className="metric-card">
           <span>完成率</span>
           <strong>
-            {data.sessions.length
-              ? Math.round((completed / data.sessions.length) * 100)
+            {data.sessionStats.total
+              ? Math.round((completed / data.sessionStats.total) * 100)
               : 0}
             %
           </strong>
@@ -649,6 +655,8 @@ function TasksTab({
         <table className="table">
           <thead>
             <tr>
+              <th>學生標籤</th>
+              <th>任務</th>
               <th>任務</th>
               <th>版本</th>
               <th>供應商／模型</th>
@@ -1125,15 +1133,24 @@ function PromptAuditTab({ data }: { data: Overview }) {
 
 function ResearchTab({
   data,
+  initialSessions,
   action,
   error,
 }: {
   data: Overview;
+  initialSessions: AdminSessionListPage;
   action: (
     payload: Record<string, unknown>,
   ) => Promise<Record<string, unknown> | null>;
   error: string;
 }) {
+  const [sessionPage, setSessionPage] = useState(initialSessions);
+  const [query, setQuery] = useState("");
+  const [taskFilter, setTaskFilter] = useState("");
+  const [appliedQuery, setAppliedQuery] = useState("");
+  const [appliedTaskFilter, setAppliedTaskFilter] = useState("");
+  const [loadingSessions, setLoadingSessions] = useState(false);
+  const [sessionError, setSessionError] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [stage, setStage] = useState<StageId>("pretest");
   const [reason, setReason] = useState("");
@@ -1141,6 +1158,40 @@ function ResearchTab({
   const [submitted, setSubmitted] = useState(false);
   const [notice, setNotice] = useState("");
   const normalizedReasonLength = reason.trim().length;
+
+  async function loadSessions(
+    page: number,
+    nextQuery = appliedQuery,
+    nextTaskFilter = appliedTaskFilter,
+  ) {
+    setLoadingSessions(true);
+    setSessionError("");
+    try {
+      const parameters = new URLSearchParams({ page: String(page) });
+      if (nextQuery.trim()) parameters.set("q", nextQuery.trim());
+      if (nextTaskFilter) parameters.set("taskId", nextTaskFilter);
+      const response = await fetch(`/api/admin/sessions?${parameters}`);
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error?.message ?? "無法載入 Session 清單。");
+      }
+      setSessionPage(payload.data as AdminSessionListPage);
+    } catch (cause) {
+      setSessionError(
+        cause instanceof Error ? cause.message : "無法載入 Session 清單。",
+      );
+    } finally {
+      setLoadingSessions(false);
+    }
+  }
+
+  async function searchSessions(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const nextQuery = query.trim();
+    setAppliedQuery(nextQuery);
+    setAppliedTaskFilter(taskFilter);
+    await loadSessions(1, nextQuery, taskFilter);
+  }
 
   function closeOverride() {
     setSelected(null);
@@ -1172,6 +1223,42 @@ function ResearchTab({
           </a>
         </div>
       </div>
+      <form className="session-filter-bar" onSubmit={searchSessions}>
+        <label className="field">
+          <span>搜尋 Session</span>
+          <input
+            className="input"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Session ID 或學生標籤"
+            maxLength={100}
+          />
+        </label>
+        <label className="field">
+          <span>研究任務</span>
+          <select
+            className="select"
+            value={taskFilter}
+            onChange={(event) => setTaskFilter(event.target.value)}
+          >
+            <option value="">全部任務</option>
+            {data.tasks.map((task) => (
+              <option value={task.id} key={task.id}>
+                {task.title}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button className="button" type="submit" disabled={loadingSessions}>
+          {loadingSessions ? (
+            <LoaderCircle className="spin" size={16} />
+          ) : (
+            <Search size={16} />
+          )}
+          搜尋
+        </button>
+      </form>
+      {sessionError ? <div className="error-banner">{sessionError}</div> : null}
       <div className="table-wrap">
         <table className="table">
           <thead>
@@ -1184,8 +1271,10 @@ function ResearchTab({
             </tr>
           </thead>
           <tbody>
-            {data.sessions.map((session) => (
+            {sessionPage.items.map((session) => (
               <tr key={session.id}>
+                <td>{session.studentLabel ?? "未命名"}</td>
+                <td>{session.taskTitle}</td>
                 <td>
                   <code>{session.id.slice(0, 12)}</code>
                 </td>
@@ -1193,8 +1282,25 @@ function ResearchTab({
                 <td>{session.completedAt ? "completed" : session.stageStatus}</td>
                 <td>{new Date(session.startedAt).toLocaleString("zh-TW")}</td>
                 <td>
+                  <div className="table-action-list">
+                    <a
+                      className="button secondary compact"
+                      href={`/admin/sessions/${session.id}`}
+                    >
+                      <Eye size={15} />
+                      檢視
+                    </a>
+                    <a
+                      className="button ghost compact"
+                      href={`/admin/sessions/${session.id}?mode=student&print=1`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <Printer size={15} />
+                      PDF
+                    </a>
                   <button
-                    className="button secondary"
+                    className="button secondary compact"
                     type="button"
                     onClick={() => {
                       setSelected(session.id);
@@ -1207,11 +1313,53 @@ function ResearchTab({
                     <Settings2 size={15} />
                     階段覆寫
                   </button>
+                  </div>
                 </td>
               </tr>
             ))}
+            {!sessionPage.items.length ? (
+              <tr>
+                <td colSpan={7}>
+                  <div className="table-empty-state">
+                    找不到符合條件的 Session。
+                  </div>
+                </td>
+              </tr>
+            ) : null}
           </tbody>
         </table>
+      </div>
+      <div className="session-pagination">
+        <span>
+          共 {sessionPage.pagination.total} 筆 · 第{" "}
+          {sessionPage.pagination.totalPages
+            ? sessionPage.pagination.page
+            : 0}{" "}
+          / {sessionPage.pagination.totalPages} 頁
+        </span>
+        <div>
+          <button
+            className="button secondary compact"
+            type="button"
+            disabled={loadingSessions || sessionPage.pagination.page <= 1}
+            onClick={() => loadSessions(sessionPage.pagination.page - 1)}
+          >
+            <ChevronLeft size={15} />
+            上一頁
+          </button>
+          <button
+            className="button secondary compact"
+            type="button"
+            disabled={
+              loadingSessions ||
+              sessionPage.pagination.page >= sessionPage.pagination.totalPages
+            }
+            onClick={() => loadSessions(sessionPage.pagination.page + 1)}
+          >
+            下一頁
+            <ChevronRight size={15} />
+          </button>
+        </div>
       </div>
       {selected ? (
         <div className="modal-backdrop">
@@ -1276,6 +1424,7 @@ function ResearchTab({
                     `階段已從 ${String(result.from)} 覆寫為 ${String(result.to)}，目前為第 ${String(result.attempt)} 次嘗試。`,
                   );
                   closeOverride();
+                  await loadSessions(sessionPage.pagination.page);
                 }
               }}
             >
@@ -1293,7 +1442,13 @@ function ResearchTab({
   );
 }
 
-export function AdminDashboard({ initialData }: { initialData: Overview }) {
+export function AdminDashboard({
+  initialData,
+  initialSessions,
+}: {
+  initialData: Overview;
+  initialSessions: AdminSessionListPage;
+}) {
   const router = useRouter();
   const [data, setData] = useState(initialData);
   const [tab, setTab] = useState<Tab>("overview");
@@ -1428,7 +1583,12 @@ export function AdminDashboard({ initialData }: { initialData: Overview }) {
         ) : null}
         {tab === "prompts" ? <PromptAuditTab data={data} /> : null}
         {tab === "research" ? (
-          <ResearchTab data={data} action={action} error={error} />
+          <ResearchTab
+            data={data}
+            initialSessions={initialSessions}
+            action={action}
+            error={error}
+          />
         ) : null}
       </section>
 

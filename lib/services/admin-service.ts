@@ -95,7 +95,7 @@ export async function adminOverview() {
     credentialRows,
     modelRows,
     taskRows,
-    sessionRows,
+    sessionStatsRows,
     driveStatus,
   ] = await Promise.all([
     db.query.providerCredentials.findMany({
@@ -109,16 +109,10 @@ export async function adminOverview() {
     }),
     db
       .select({
-        id: studentSessions.id,
-        taskId: studentSessions.taskId,
-        currentStage: studentSessions.currentStage,
-        stageStatus: studentSessions.stageStatus,
-        startedAt: studentSessions.startedAt,
-        completedAt: studentSessions.completedAt,
+        total: sql<number>`count(*)`,
+        completed: sql<number>`count(*) filter (where ${studentSessions.completedAt} is not null)`,
       })
-      .from(studentSessions)
-      .orderBy(desc(studentSessions.startedAt))
-      .limit(100),
+      .from(studentSessions),
     googleDriveStatus(),
   ]);
 
@@ -141,11 +135,10 @@ export async function adminOverview() {
         promptAudit: promptAuditCatalog(config.promptConfig),
       };
     }),
-    sessions: sessionRows.map((row) => ({
-      ...row,
-      startedAt: row.startedAt.toISOString(),
-      completedAt: row.completedAt?.toISOString() ?? null,
-    })),
+    sessionStats: {
+      total: Number(sessionStatsRows[0]?.total ?? 0),
+      completed: Number(sessionStatsRows[0]?.completed ?? 0),
+    },
     drive: driveStatus,
     taskDefaults: normalizeTaskConfig(DEFAULT_TASK_CONFIG),
   };
