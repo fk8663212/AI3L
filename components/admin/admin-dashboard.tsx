@@ -934,7 +934,7 @@ function PromptAuditTab({ data }: { data: Overview }) {
                   ) : null}
 
                   <PromptCode
-                    label="User prompt template"
+                    label="實際送出的 User Prompt 模板"
                     hash={call.templateHash}
                   >
                     {call.userPromptTemplate}

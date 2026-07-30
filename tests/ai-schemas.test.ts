@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  annotatedImageSchema,
+  generatedConceptMapSchema,
+  imageAnalysisGenerationSchema,
   imageAnalysisSchema,
   speechEvaluationSchema,
   transcriptSchema,
@@ -23,6 +26,44 @@ describe("AI structured outputs", () => {
       ],
     });
     expect(parsed.success).toBe(false);
+  });
+
+  it("requires bounded coordinates for the AI-annotated drawing", () => {
+    const generated = imageAnalysisGenerationSchema.parse({
+      sceneSummaryZh: "市場場景",
+      uncertaintyNote: "依手繪內容辨識",
+      suggestions: [
+        {
+          id: "vendor-1",
+          labelEn: "vendor",
+          labelZh: "攤販",
+          category: "person",
+          confidence: 0.91,
+          evidence: "圖面左側的人物",
+          example: "The vendor sells New Year goods.",
+          region: { x: 80, y: 120, width: 240, height: 520 },
+        },
+      ],
+    });
+
+    expect(
+      annotatedImageSchema.parse({
+        sourceImageArtifactId: "6f7a3ccb-56a0-4f2c-8f9d-197fcc35a39c",
+        annotations: generated.suggestions,
+      }).annotations[0].region.width,
+    ).toBe(240);
+
+    expect(() =>
+      imageAnalysisGenerationSchema.parse({
+        ...generated,
+        suggestions: [
+          {
+            ...generated.suggestions[0],
+            region: { x: 1001, y: 0, width: 20, height: 20 },
+          },
+        ],
+      }),
+    ).toThrow();
   });
 
   it("accepts a faithful transcript and conservative evaluation", () => {
@@ -50,5 +91,22 @@ describe("AI structured outputs", () => {
         nextStepZh: "加入事件發生順序。",
       }).contentUnits,
     ).toBe(1);
+  });
+
+  it("requires a generated concept map rather than a vocabulary list", () => {
+    expect(() =>
+      generatedConceptMapSchema.parse({
+        nodes: [
+          {
+            id: "market",
+            labelEn: "market",
+            labelZh: "市場",
+            category: "place",
+            source: "student",
+          },
+        ],
+        edges: [],
+      }),
+    ).toThrow();
   });
 });

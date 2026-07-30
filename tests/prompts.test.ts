@@ -88,15 +88,22 @@ describe("prompt audit catalog", () => {
     )?.calls[0];
 
     expect(catalog.baseSystemPrompt).toBe("Custom research system prompt.");
-    expect(imageCall?.userPromptTemplate).toBe(
+    expect(imageCall?.userPromptTemplate).toContain(
       promptConfig.imageAnalysisTemplate,
     );
+    expect(imageCall?.userPromptTemplate).toContain("固定研究輸出契約");
     expect(
       imageAnalysisPrompt(
         { taskTitle: "Pilot", studentLabels: ["crowd"] },
         promptConfig.imageAnalysisTemplate,
       ),
-    ).toBe("Custom image task: Pilot / crowd");
+    ).toContain("Custom image task: Pilot / crowd");
+    expect(
+      imageAnalysisPrompt(
+        { taskTitle: "Pilot", studentLabels: ["crowd"] },
+        promptConfig.imageAnalysisTemplate,
+      ),
+    ).toContain("固定研究輸出契約");
   });
 
   it("backfills prompt defaults for tasks created before editable prompts", () => {

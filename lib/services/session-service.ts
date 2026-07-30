@@ -132,9 +132,15 @@ export function evidenceForStage(
     sentenceCount: sentences ? arrayLength(sentences.data, "sentences") : 0,
     aiOutputReady: stageRows.some(
       (row) =>
-        ["image_analysis", "ai_concept_map", "sentence_scaffold"].includes(
-          row.type,
-        ) && row.status === "ready",
+        [
+          "image_analysis",
+          "generated_concept_map",
+          "ai_concept_map",
+          "sentence_scaffold",
+        ].includes(row.type) && row.status === "ready",
+    ),
+    annotatedImageReady: stageRows.some(
+      (row) => row.type === "annotated_image" && row.status === "ready",
     ),
   };
 }
@@ -415,6 +421,12 @@ export async function replaceArtifactData(input: {
   stageId: StageId;
   type: string;
   data: Record<string, unknown>;
+  status?: string;
+  storageProvider?: string;
+  storageLocator?: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  sha256?: string;
 }) {
   const db = getDb();
   await db

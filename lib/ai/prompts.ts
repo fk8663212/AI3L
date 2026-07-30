@@ -16,6 +16,8 @@ export const IMAGE_ANALYSIS_PROMPT_TEMPLATE = `
 
 請分析附上的手繪圖，找出可支持口說敘事的人物、物件、事件、地點、感受與特質。
 每一項建議都要給英文、繁中、分類、0 到 1 的信心、圖像證據與一個簡短自然例句。
+另以原圖左上角為原點，為每一項提供 0 到 1000 的正規化 region（x、y、width、height），緊密框住可辨識元素；不要標記看不見或只能猜測的物件。
+每個 id 必須唯一且穩定，讓學生能逐項審核標記。
 最多 12 項，避免重複學生已知且沒有新增價值的項目。
 `.trim();
 
@@ -27,9 +29,21 @@ export const CONCEPT_EXPANSION_PROMPT_TEMPLATE = `
 學生已接受或修改後的 AI 詞彙：
 {{student.acceptedVocabularyJson}}
 
-請保留學生原始節點與關係，並提出少量可選的 AI 節點與關係，幫助學生建立連貫敘事。
+請將學生原始概念與已確認詞彙分類，生成一張完整、連貫的新概念圖。
+保留有助於敘事的學生原始節點與關係，再加入可由手繪圖、已確認詞彙或緊密情境關聯支持的英文節點與關係。
+新概念圖必須能單獨閱讀：每個節點都應參與至少一條關係，所有 edge 的 from/to 都必須對應到輸出的 node id。
 AI 新增項目的 source 必須是 "ai"，學生原始項目的 source 必須是 "student"。
-不要加入無法由學生作品支持的歷史或觀光知識。
+可加入有助於描述大稻埕情境的近距離詞彙聯想，但不可把未提供的事件寫成學生親身經驗。
+`.trim();
+
+export const IMAGE_ANALYSIS_OUTPUT_CONTRACT = `
+【固定研究輸出契約】
+輸出的每個 suggestions 項目都必須包含對應原圖位置的 region（x、y、width、height，範圍 0 到 1000），供系統直接合成 AI 標記後的手繪圖；不得只回傳文字清單。
+`.trim();
+
+export const CONCEPT_MAP_OUTPUT_CONTRACT = `
+【固定研究輸出契約】
+輸出必須是一張可單獨閱讀的新概念圖，而不是詞彙清單：至少包含 3 個 nodes、2 條有方向且有中英文關係詞的 edges；每條 edge 的 from/to 必須對應輸出的 node id，並清楚標示 student 或 ai 來源。
 `.trim();
 
 export const SENTENCE_SCAFFOLD_PROMPT_TEMPLATE = `
@@ -110,11 +124,23 @@ function renderPromptTemplate(
   );
 }
 
+export function effectiveImageAnalysisTemplate(
+  template = IMAGE_ANALYSIS_PROMPT_TEMPLATE,
+): string {
+  return `${template.trim()}\n\n${IMAGE_ANALYSIS_OUTPUT_CONTRACT}`;
+}
+
+export function effectiveConceptExpansionTemplate(
+  template = CONCEPT_EXPANSION_PROMPT_TEMPLATE,
+): string {
+  return `${template.trim()}\n\n${CONCEPT_MAP_OUTPUT_CONTRACT}`;
+}
+
 export function imageAnalysisPrompt(input: {
   taskTitle: string;
   studentLabels: string[];
 }, template = IMAGE_ANALYSIS_PROMPT_TEMPLATE): string {
-  return renderPromptTemplate(template, {
+  return renderPromptTemplate(effectiveImageAnalysisTemplate(template), {
     "task.title": input.taskTitle,
     "student.labels": input.studentLabels.join(", ") || "沒有",
   });
@@ -125,7 +151,7 @@ export function conceptExpansionPrompt(input: {
   studentMap: unknown;
   acceptedVocabulary: unknown;
 }, template = CONCEPT_EXPANSION_PROMPT_TEMPLATE): string {
-  return renderPromptTemplate(template, {
+  return renderPromptTemplate(effectiveConceptExpansionTemplate(template), {
     "task.title": input.taskTitle,
     "student.conceptMapJson": JSON.stringify(input.studentMap),
     "student.acceptedVocabularyJson": JSON.stringify(input.acceptedVocabulary),

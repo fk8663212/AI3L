@@ -1,5 +1,7 @@
 import {
   DEFAULT_TASK_PROMPT_CONFIG,
+  effectiveConceptExpansionTemplate,
+  effectiveImageAnalysisTemplate,
   type TaskPromptConfig,
 } from "@/lib/ai/prompts";
 import { STAGES, type StageId } from "@/lib/domain/stages";
@@ -95,21 +97,27 @@ const stageCalls: Record<
     promptCall({
       id: "image_analysis",
       title: "手繪圖結構化分析",
-      purpose: "從學生手繪圖提出可審核的英語詞彙與圖像證據。",
+      purpose:
+        "辨識學生手繪圖中的元素、回傳標準化座標，形成可審核的英文標記版本。",
       systemLabel: "AI scaffold system prompt",
       systemPrompt: config.baseSystemPrompt,
-      userPromptTemplate: config.imageAnalysisTemplate,
+      userPromptTemplate: effectiveImageAnalysisTemplate(
+        config.imageAnalysisTemplate,
+      ),
       variables: ["task.title", "student.labels", "student.drawing"],
     }),
   ],
   ai_concept_map: (config) => [
     promptCall({
       id: "concept_expansion",
-      title: "概念圖擴展",
-      purpose: "在保留學生原始概念的前提下提出少量可選節點與關係。",
+      title: "生成新的擴充概念圖",
+      purpose:
+        "將原始概念與已確認詞彙分類，生成具有節點、方向連線與關係標籤的新概念圖。",
       systemLabel: "AI scaffold system prompt",
       systemPrompt: config.baseSystemPrompt,
-      userPromptTemplate: config.conceptExpansionTemplate,
+      userPromptTemplate: effectiveConceptExpansionTemplate(
+        config.conceptExpansionTemplate,
+      ),
       variables: [
         "task.title",
         "student.conceptMapJson",

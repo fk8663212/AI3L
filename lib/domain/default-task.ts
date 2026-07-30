@@ -43,11 +43,11 @@ export const DEFAULT_TASK_CONFIG: TaskConfig = {
     },
     image_analysis: {
       instruction:
-        "逐項確認 AI 的辨識是否真的出現在你的圖畫或經驗中。你可以接受、修改或拒絕。",
+        "查看 AI 已標記英文詞彙的手繪圖版本，逐項確認辨識內容是否真的出現在圖畫或經驗中；你可以接受、修改或拒絕。",
     },
     ai_concept_map: {
       instruction:
-        "比較 AI 建議與自己的概念圖，只保留符合你實際經驗的節點與關係。",
+        "比較 AI 生成的新概念圖與自己的原始概念圖，只保留能幫助描述實際經驗的節點與關係。",
     },
     sentence_scaffold: {
       instruction:

@@ -10,13 +10,37 @@ export const vocabularySuggestionSchema = z.object({
   example: z.string().min(1),
 });
 
+export const annotationRegionSchema = z.object({
+  x: z.number().min(0).max(1000),
+  y: z.number().min(0).max(1000),
+  width: z.number().min(1).max(1000),
+  height: z.number().min(1).max(1000),
+});
+
+export const imageAnnotationSchema = vocabularySuggestionSchema.extend({
+  region: annotationRegionSchema,
+});
+
 export const imageAnalysisSchema = z.object({
   sceneSummaryZh: z.string(),
   suggestions: z.array(vocabularySuggestionSchema).min(1).max(20),
   uncertaintyNote: z.string(),
 });
 
+export const imageAnalysisGenerationSchema = z.object({
+  sceneSummaryZh: z.string(),
+  suggestions: z.array(imageAnnotationSchema).min(1).max(20),
+  uncertaintyNote: z.string(),
+});
+
+export const annotatedImageSchema = z.object({
+  sourceImageArtifactId: z.string().uuid(),
+  annotations: z.array(imageAnnotationSchema).min(1).max(20),
+});
+
 export type ImageAnalysis = z.infer<typeof imageAnalysisSchema>;
+export type ImageAnnotation = z.infer<typeof imageAnnotationSchema>;
+export type AnnotatedImage = z.infer<typeof annotatedImageSchema>;
 
 export const conceptNodeSchema = z.object({
   id: z.string(),
@@ -38,6 +62,11 @@ export const conceptEdgeSchema = z.object({
 export const conceptMapSchema = z.object({
   nodes: z.array(conceptNodeSchema),
   edges: z.array(conceptEdgeSchema),
+});
+
+export const generatedConceptMapSchema = z.object({
+  nodes: z.array(conceptNodeSchema).min(3).max(20),
+  edges: z.array(conceptEdgeSchema).min(2).max(40),
 });
 
 export type ConceptMap = z.infer<typeof conceptMapSchema>;

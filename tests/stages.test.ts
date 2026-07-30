@@ -16,6 +16,7 @@ const completeEvidence: GateEvidence = {
   pendingConceptDecisions: 0,
   sentenceCount: 3,
   aiOutputReady: true,
+  annotatedImageReady: true,
 };
 
 describe("seven-stage state machine", () => {
@@ -44,6 +45,15 @@ describe("seven-stage state machine", () => {
       evaluateStageGate("ai_concept_map", {
         ...completeEvidence,
         aiOutputReady: false,
+      }).code,
+    ).toBe("AI_OUTPUT_REQUIRED");
+  });
+
+  it("requires an AI-annotated drawing in the recognition stage", () => {
+    expect(
+      evaluateStageGate("image_analysis", {
+        ...completeEvidence,
+        annotatedImageReady: false,
       }).code,
     ).toBe("AI_OUTPUT_REQUIRED");
   });

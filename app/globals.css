@@ -306,6 +306,12 @@ button {
   width: 100%;
 }
 
+.button.compact {
+  min-height: 36px;
+  padding: 7px 10px;
+  font-size: 0.74rem;
+}
+
 .error-banner,
 .success-banner,
 .info-banner {
@@ -687,6 +693,130 @@ button {
   background: #f6f2eb;
 }
 
+.annotated-image-card {
+  width: min(100%, 880px);
+}
+
+.annotated-image-card .artifact-card-header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.annotated-image-card .artifact-card-header small {
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+
+.annotated-image-stage {
+  width: 100%;
+  padding: 12px;
+  overflow: auto;
+  text-align: center;
+  line-height: 0;
+  background: #f6f2eb;
+}
+
+.annotated-image-canvas {
+  position: relative;
+  max-width: 100%;
+  display: inline-block;
+}
+
+.annotated-image-canvas > img {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 640px;
+  display: block;
+}
+
+.annotation-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.annotation-box {
+  --annotation-color: #b84a3a;
+  position: absolute;
+  min-width: 2px;
+  min-height: 2px;
+  border: 2px solid var(--annotation-color);
+  border-radius: 5px;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.9),
+    0 2px 9px rgba(20, 27, 40, 0.2);
+}
+
+.annotation-box > span {
+  position: absolute;
+  left: -2px;
+  top: -2px;
+  max-width: min(190px, 35vw);
+  padding: 4px 6px;
+  overflow: hidden;
+  border-radius: 4px 4px 5px 0;
+  color: white;
+  background: var(--annotation-color);
+  font-size: clamp(0.58rem, 1.2vw, 0.75rem);
+  font-weight: 850;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.annotation-box > span small {
+  margin-left: 4px;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 0.88em;
+}
+
+.annotation-box[data-category="person"],
+.annotation-legend span[data-category="person"] {
+  --annotation-color: #b84a3a;
+}
+
+.annotation-box[data-category="object"],
+.annotation-legend span[data-category="object"] {
+  --annotation-color: #2f6da3;
+}
+
+.annotation-box[data-category="event"],
+.annotation-legend span[data-category="event"] {
+  --annotation-color: #7d4da3;
+}
+
+.annotation-box[data-category="place"],
+.annotation-legend span[data-category="place"] {
+  --annotation-color: #2f7d65;
+}
+
+.annotation-box[data-category="feeling"],
+.annotation-legend span[data-category="feeling"] {
+  --annotation-color: #bd6f21;
+}
+
+.annotation-box[data-category="quality"],
+.annotation-legend span[data-category="quality"] {
+  --annotation-color: #82621b;
+}
+
+.annotation-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.annotation-legend span {
+  padding: 5px 8px;
+  border-left: 4px solid var(--annotation-color);
+  border-radius: 6px;
+  color: var(--ink-soft);
+  background: #f7f3ed;
+  font-size: 0.7rem;
+  line-height: 1.3;
+}
+
 .review-list {
   display: grid;
   gap: 9px;
@@ -736,29 +866,70 @@ button {
 }
 
 .concept-graph {
-  min-height: 220px;
   position: relative;
-  padding: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: auto;
+  width: 100%;
+  height: clamp(480px, 62vw, 680px);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 15px;
   background:
     linear-gradient(90deg, rgba(203, 191, 174, 0.14) 1px, transparent 1px),
     linear-gradient(rgba(203, 191, 174, 0.14) 1px, transparent 1px);
   background-size: 18px 18px;
 }
 
-.concept-tree {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 13px;
+.concept-edge-layer {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.concept-edge-layer marker path {
+  fill: #768092;
+}
+
+.concept-edge-layer line {
+  stroke: #768092;
+  stroke-width: 0.45;
+  vector-effect: non-scaling-stroke;
+}
+
+.concept-edge-layer g.ai line {
+  stroke: #b18325;
+  stroke-dasharray: 2 1.4;
+}
+
+.concept-edge-layer g.ai marker path {
+  fill: #b18325;
+}
+
+.concept-edge-layer text {
+  fill: #4c5668;
+  stroke: rgba(255, 255, 255, 0.96);
+  stroke-width: 0.75;
+  paint-order: stroke;
+  text-anchor: middle;
+  font-size: 2.15px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.concept-edge-layer g.ai text {
+  fill: #806019;
 }
 
 .concept-node {
-  max-width: 180px;
-  padding: 10px 12px;
+  position: absolute;
+  z-index: 2;
+  width: clamp(92px, 16vw, 142px);
+  min-height: 58px;
+  padding: 9px 10px;
+  display: grid;
+  place-content: center;
+  transform: translate(-50%, -50%);
   border: 2px solid var(--brand);
   border-radius: 14px;
   text-align: center;
@@ -768,12 +939,47 @@ button {
 
 .concept-node.ai {
   border-color: var(--gold);
+  background: #fffaf0;
 }
 
 .concept-node small {
   display: block;
   margin-top: 2px;
   color: var(--ink-soft);
+  font-size: 0.68rem;
+}
+
+.concept-node em {
+  margin-top: 4px;
+  color: #8a681d;
+  font-size: 0.58rem;
+  font-style: normal;
+  font-weight: 850;
+  letter-spacing: 0.05em;
+}
+
+.concept-map-legend {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.concept-map-legend span {
+  padding: 5px 8px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 750;
+}
+
+.concept-map-legend span.student {
+  color: #8b352b;
+  background: #f9e5e1;
+}
+
+.concept-map-legend span.ai {
+  color: #745514;
+  background: var(--gold-soft);
 }
 
 .edge-list {
@@ -782,6 +988,17 @@ button {
   gap: 6px;
   color: var(--ink-soft);
   font-size: 0.78rem;
+}
+
+.edge-list > div {
+  padding: 7px 9px;
+  border-left: 3px solid var(--brand);
+  border-radius: 5px;
+  background: #faf8f4;
+}
+
+.edge-list > div.ai {
+  border-left-color: var(--gold);
 }
 
 .audio-recorder {
@@ -1732,5 +1949,26 @@ button {
   .prompt-block-header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .concept-graph {
+    height: 440px;
+  }
+
+  .concept-node {
+    width: 88px;
+    min-height: 50px;
+    padding: 7px;
+    font-size: 0.7rem;
+  }
+
+  .concept-edge-layer text {
+    font-size: 2.6px;
+  }
+
+  .annotated-image-card .artifact-card-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 9px;
   }
 }

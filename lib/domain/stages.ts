@@ -100,6 +100,7 @@ export type GateEvidence = {
   pendingConceptDecisions: number;
   sentenceCount: number;
   aiOutputReady: boolean;
+  annotatedImageReady: boolean;
 };
 
 export type StageGateResult = {
@@ -160,11 +161,11 @@ export function evaluateStageGate(
             message: "概念圖至少需要三個節點及兩個關係。",
           };
     case "image_analysis":
-      if (!evidence.aiOutputReady) {
+      if (!evidence.aiOutputReady || !evidence.annotatedImageReady) {
         return {
           ok: false,
           code: "AI_OUTPUT_REQUIRED",
-          message: "請先完成 AI 圖像分析。",
+          message: "請先取得 AI 已在手繪圖上完成標記的版本。",
         };
       }
       return evidence.pendingVocabularyDecisions === 0

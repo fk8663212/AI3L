@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
+  annotatedImageSchema,
   conceptMapSchema,
   imageAnalysisSchema,
   sentenceScaffoldSchema,
@@ -22,6 +23,7 @@ import type {
   SessionView,
 } from "@/lib/services/session-service";
 import { AudioRecorder } from "@/components/student/audio-recorder";
+import { AnnotatedImageCard } from "@/components/student/annotated-image-card";
 import { ConceptMapCard } from "@/components/student/concept-map-card";
 import { ImageUploader } from "@/components/student/image-uploader";
 
@@ -71,7 +73,18 @@ function MessageContent({
         : message.content;
     const parsed = conceptMapSchema.safeParse(source);
     if (parsed.success) {
-      return <ConceptMapCard map={parsed.data} />;
+      return (
+        <ConceptMapCard
+          map={parsed.data}
+          title={
+            message.kind === "ai_concept_map"
+              ? "AI 生成的新概念圖"
+              : message.kind === "concept_decisions"
+                ? "我確認後的概念圖"
+                : "我的原始概念圖"
+          }
+        />
+      );
     }
   }
 
@@ -139,6 +152,22 @@ function ArtifactHistory({
   const media = rows.filter(
     (item) => item.type === "image" || item.type === "audio",
   );
+  const annotatedImages =
+    view.session.currentStage === "image_analysis"
+      ? []
+      : rows
+          .filter((item) => item.type === "annotated_image")
+          .flatMap((item) => {
+            const parsed = annotatedImageSchema.safeParse(item.data);
+            if (!parsed.success) return [];
+            const source = view.artifacts.find(
+              (candidate) =>
+                candidate.id === parsed.data.sourceImageArtifactId,
+            );
+            return source?.downloadUrl
+              ? [{ artifact: item, annotated: parsed.data, source }]
+              : [];
+          });
   return (
     <>
       {media.map((item) => (
@@ -161,6 +190,15 @@ function ArtifactHistory({
               </div>
             ) : null}
           </div>
+        </div>
+      ))}
+      {annotatedImages.map(({ artifact: item, annotated, source }) => (
+        <div className="message-row assistant" key={item.id}>
+          <AnnotatedImageCard
+            sourceUrl={source.downloadUrl!}
+            annotatedUrl={item.downloadUrl}
+            annotated={annotated}
+          />
         </div>
       ))}
     </>
@@ -392,12 +430,19 @@ function ImageAnalysisPanel({
   perform: Perform;
 }) {
   const output = artifact(view, "image_analysis", "image_analysis");
+  const annotatedOutput = artifact(
+    view,
+    "image_analysis",
+    "annotated_image",
+  );
+  const sourceImage = artifact(view, "visualization", "image");
   const decisionsArtifact = artifact(
     view,
     "image_analysis",
     "vocabulary_decisions",
   );
   const parsed = imageAnalysisSchema.safeParse(output?.data);
+  const annotated = annotatedImageSchema.safeParse(annotatedOutput?.data);
   const [decisions, setDecisions] = useState<
     Record<
       string,
@@ -422,19 +467,24 @@ function ImageAnalysisPanel({
       : {},
   );
 
-  if (!parsed.success) {
+  if (!parsed.success || !annotated.success || !sourceImage?.downloadUrl) {
     return (
       <div className="stage-panel">
         <p style={{ margin: 0, color: "var(--ink-soft)" }}>
-          AI 會讀取你先前的手繪圖與自主標記，提出可審核的雙語詞彙。
+          AI 會讀取你先前的手繪圖，將辨識到的元素直接標在原圖上，並提供可審核的雙語詞彙。
         </p>
+        {parsed.success && !annotated.success ? (
+          <div className="info-banner">
+            目前只有舊版詞彙分析；請重新執行以取得 AI 標記後的手繪圖。
+          </div>
+        ) : null}
         <button
           className="button"
           type="button"
           onClick={() => perform({ action: "run_ai", stage: "image_analysis" })}
         >
           <Sparkles size={17} />
-          開始圖像分析
+          產生 AI 標記版本
         </button>
       </div>
     );
@@ -445,6 +495,11 @@ function ImageAnalysisPanel({
     decisionsArtifact.data.pending.length === 0;
   return (
     <div className="stage-panel">
+      <AnnotatedImageCard
+        sourceUrl={sourceImage.downloadUrl}
+        annotatedUrl={annotatedOutput?.downloadUrl}
+        annotated={annotated.data}
+      />
       <div className="info-banner">{parsed.data.sceneSummaryZh}</div>
       <div className="review-list">
         {parsed.data.suggestions.map((item) => {
@@ -526,9 +581,13 @@ function ImageAnalysisPanel({
           onClick={() =>
             perform({
               action: "review_vocabulary",
-              decisions: Object.entries(decisions).map(([id, decision]) => ({
-                id,
-                ...decision,
+              decisions: parsed.data.suggestions.map((item) => ({
+                id: item.id,
+                ...(decisions[item.id] ?? {
+                  status: "accepted" as const,
+                  labelEn: item.labelEn,
+                  labelZh: item.labelZh,
+                }),
               })),
             })
           }
@@ -549,16 +608,20 @@ function AIConceptPanel({
   view: SessionView;
   perform: Perform;
 }) {
-  const output = artifact(view, "ai_concept_map", "ai_concept_map");
+  const output =
+    artifact(view, "ai_concept_map", "generated_concept_map") ??
+    artifact(view, "ai_concept_map", "ai_concept_map");
   const decisions = artifact(view, "ai_concept_map", "concept_decisions");
   const parsed = conceptMapSchema.safeParse(output?.data);
-  const [excluded, setExcluded] = useState<Set<string>>(new Set());
+  const [excluded, setExcluded] = useState<Set<string>>(
+    () => new Set(stringArray(decisions?.data.rejectedIds)),
+  );
 
   if (!parsed.success) {
     return (
       <div className="stage-panel">
         <p style={{ margin: 0, color: "var(--ink-soft)" }}>
-          AI 只會使用你原本的概念圖與已確認詞彙，提出可選的擴充關係。
+          AI 會分類你原本的概念與已確認詞彙，生成一張具有節點、方向連線與關係詞的新概念圖。
         </p>
         <button
           className="button"
@@ -590,7 +653,7 @@ function AIConceptPanel({
     <div className="stage-panel">
       <ConceptMapCard
         map={{ nodes: selectedNodes, edges: selectedEdges }}
-        title="AI 擴充概念圖預覽"
+        title="AI 生成的新概念圖"
       />
       <div className="review-list">
         {[...parsed.data.nodes, ...parsed.data.edges]

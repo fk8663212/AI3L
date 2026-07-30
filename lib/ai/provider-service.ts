@@ -1,5 +1,7 @@
-import { get } from "@vercel/blob";
+import { createHash } from "node:crypto";
+import { get, put } from "@vercel/blob";
 import { and, desc, eq, isNull } from "drizzle-orm";
+import sharp from "sharp";
 import { getDb } from "@/lib/db/client";
 import {
   aiRuns,
@@ -9,9 +11,10 @@ import {
   tasks,
 } from "@/lib/db/schema";
 import {
-  conceptMapSchema,
-  imageAnalysisSchema,
+  generatedConceptMapSchema,
+  imageAnalysisGenerationSchema,
   sentenceScaffoldSchema,
+  type ImageAnnotation,
 } from "@/lib/ai/schemas";
 import type { ZodType } from "zod";
 import {
@@ -82,6 +85,98 @@ async function privateBlobBytes(locator: string): Promise<BinaryInput> {
   };
 }
 
+function escapeXml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
+function annotationColor(category: ImageAnnotation["category"]): string {
+  return (
+    {
+      person: "#b84a3a",
+      object: "#2f6da3",
+      event: "#7d4da3",
+      place: "#2f7d65",
+      feeling: "#bd6f21",
+      quality: "#82621b",
+    } as const
+  )[category];
+}
+
+async function renderAnnotatedDrawing(
+  source: BinaryInput,
+  annotations: ImageAnnotation[],
+): Promise<Uint8Array> {
+  const input = Buffer.from(source.bytes);
+  const metadata = await sharp(input).metadata();
+  const width = metadata.width;
+  const height = metadata.height;
+  if (!width || !height) {
+    throw new Error("Drawing dimensions could not be determined.");
+  }
+
+  const lineWidth = Math.max(3, Math.round(width / 420));
+  const fontSize = Math.max(18, Math.round(width / 48));
+  const padding = Math.max(5, Math.round(fontSize * 0.28));
+  const elements = annotations
+    .map((item) => {
+      const normalizedX = Math.min(999, Math.max(0, item.region.x));
+      const normalizedY = Math.min(999, Math.max(0, item.region.y));
+      const normalizedWidth = Math.min(
+        1000 - normalizedX,
+        Math.max(1, item.region.width),
+      );
+      const normalizedHeight = Math.min(
+        1000 - normalizedY,
+        Math.max(1, item.region.height),
+      );
+      const x = (normalizedX / 1000) * width;
+      const y = (normalizedY / 1000) * height;
+      const boxWidth = (normalizedWidth / 1000) * width;
+      const boxHeight = (normalizedHeight / 1000) * height;
+      const label = escapeXml(item.labelEn);
+      const labelWidth = Math.min(
+        width,
+        Math.max(fontSize * 3, label.length * fontSize * 0.64 + padding * 2),
+      );
+      const labelX = Math.min(width - labelWidth, Math.max(0, x));
+      const labelHeight = fontSize + padding * 2;
+      const labelY = Math.max(0, y - labelHeight);
+      const color = annotationColor(item.category);
+      return `
+        <rect x="${x}" y="${y}" width="${boxWidth}" height="${boxHeight}"
+          rx="${lineWidth * 1.5}" fill="none" stroke="#ffffff"
+          stroke-width="${lineWidth * 2.5}" />
+        <rect x="${x}" y="${y}" width="${boxWidth}" height="${boxHeight}"
+          rx="${lineWidth * 1.5}" fill="none" stroke="${color}"
+          stroke-width="${lineWidth}" />
+        <rect x="${labelX}" y="${labelY}" width="${labelWidth}" height="${labelHeight}"
+          rx="${padding}" fill="${color}" />
+        <text x="${labelX + padding}" y="${labelY + padding + fontSize * 0.82}"
+          fill="#ffffff" font-family="Arial, sans-serif" font-size="${fontSize}"
+          font-weight="700">${label}</text>
+      `;
+    })
+    .join("\n");
+  const overlay = `
+    <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"
+      xmlns="http://www.w3.org/2000/svg">
+      ${elements}
+    </svg>
+  `;
+
+  return new Uint8Array(
+    await sharp(input)
+      .composite([{ input: Buffer.from(overlay) }])
+      .webp({ quality: 90 })
+      .toBuffer(),
+  );
+}
+
 export async function runStageAI(
   sessionId: string,
   stage: "image_analysis" | "ai_concept_map" | "sentence_scaffold",
@@ -105,6 +200,7 @@ export async function runStageAI(
   let prompt: string;
   let schema: ZodType<unknown>;
   let binary: BinaryInput | undefined;
+  let sourceImageArtifactId: string | undefined;
 
   if (stage === "image_analysis") {
     const image = artifactRows.find(
@@ -117,14 +213,18 @@ export async function runStageAI(
       throw new ApiError(409, "IMAGE_REQUIRED", "找不到先前上傳的手繪圖。");
     }
     schemaName = "image_analysis";
-    schema = imageAnalysisSchema;
-    prompt = imageAnalysisPrompt({
-      taskTitle: context.task.title,
-      studentLabels: Array.isArray(labels?.data.labels)
-        ? (labels.data.labels as string[])
-        : [],
-    }, promptConfig.imageAnalysisTemplate);
+    schema = imageAnalysisGenerationSchema;
+    prompt = imageAnalysisPrompt(
+      {
+        taskTitle: context.task.title,
+        studentLabels: Array.isArray(labels?.data.labels)
+          ? (labels.data.labels as string[])
+          : [],
+      },
+      promptConfig.imageAnalysisTemplate,
+    );
     binary = await privateBlobBytes(image.storageLocator);
+    sourceImageArtifactId = image.id;
   } else if (stage === "ai_concept_map") {
     const selfMap = artifactRows.find(
       (row) => row.stageId === "self_concept_map" && row.type === "concept_map",
@@ -135,12 +235,15 @@ export async function runStageAI(
         row.type === "vocabulary_decisions",
     );
     schemaName = "concept_map";
-    schema = conceptMapSchema;
-    prompt = conceptExpansionPrompt({
-      taskTitle: context.task.title,
-      studentMap: selfMap?.data ?? {},
-      acceptedVocabulary: vocabulary?.data.accepted ?? [],
-    }, promptConfig.conceptExpansionTemplate);
+    schema = generatedConceptMapSchema;
+    prompt = conceptExpansionPrompt(
+      {
+        taskTitle: context.task.title,
+        studentMap: selfMap?.data ?? {},
+        acceptedVocabulary: vocabulary?.data.accepted ?? [],
+      },
+      promptConfig.conceptExpansionTemplate,
+    );
   } else {
     const conceptDecisions = artifactRows.find(
       (row) =>
@@ -151,13 +254,16 @@ export async function runStageAI(
     );
     schemaName = "sentence_scaffold";
     schema = sentenceScaffoldSchema;
-    prompt = sentenceScaffoldPrompt({
-      taskTitle: context.task.title,
-      finalConceptMap: conceptDecisions?.data.accepted ?? {},
-      studentSentences: Array.isArray(sentences?.data.sentences)
-        ? (sentences.data.sentences as string[])
-        : [],
-    }, promptConfig.sentenceScaffoldTemplate);
+    prompt = sentenceScaffoldPrompt(
+      {
+        taskTitle: context.task.title,
+        finalConceptMap: conceptDecisions?.data.accepted ?? {},
+        studentSentences: Array.isArray(sentences?.data.sentences)
+          ? (sentences.data.sentences as string[])
+          : [],
+      },
+      promptConfig.sentenceScaffoldTemplate,
+    );
   }
 
   const run = (
@@ -187,12 +293,49 @@ export async function runStageAI(
       binary,
     });
 
+    const outputType =
+      stage === "ai_concept_map" ? "generated_concept_map" : stage;
     await replaceArtifactData({
       sessionId,
       stageId: stage,
-      type: stage,
+      type: outputType,
       data: result.value as Record<string, unknown>,
     });
+    if (stage === "image_analysis" && sourceImageArtifactId) {
+      const annotated = imageAnalysisGenerationSchema.parse(result.value);
+      if (!binary) throw new Error("Drawing bytes are unavailable.");
+      const annotatedBytes = await renderAnnotatedDrawing(
+        binary,
+        annotated.suggestions,
+      );
+      const stored = await put(
+        `student/${sessionId}/image_analysis/annotated-drawing.webp`,
+        Buffer.from(annotatedBytes),
+        {
+          access: "private",
+          contentType: "image/webp",
+          addRandomSuffix: false,
+          allowOverwrite: true,
+        },
+      );
+      await replaceArtifactData({
+        sessionId,
+        stageId: stage,
+        type: "annotated_image",
+        data: {
+          sourceImageArtifactId,
+          annotations: annotated.suggestions,
+          pathname: stored.pathname,
+        },
+        storageProvider: "vercel-blob",
+        storageLocator: stored.url,
+        mimeType: "image/webp",
+        sizeBytes: annotatedBytes.byteLength,
+        sha256: createHash("sha256")
+          .update(annotatedBytes)
+          .digest("base64url"),
+      });
+    }
     await saveMessage({
       sessionId,
       stageId: stage,
