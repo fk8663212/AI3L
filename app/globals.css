@@ -661,12 +661,31 @@ button {
   transition: width 120ms ease-out;
 }
 
+.upload-cancel-button {
+  display: flex;
+  width: fit-content;
+  margin: 10px auto 0;
+}
+
+.handdrawn-concept-card {
+  width: min(100%, 520px);
+}
+
+.handdrawn-concept-link {
+  display: block;
+  padding: 12px;
+  color: var(--ink-soft);
+  text-align: center;
+  text-decoration: none;
+  font-size: 0.75rem;
+}
+
 .handdrawn-concept-image {
   display: block;
   width: 100%;
   height: auto;
-  max-height: 620px;
-  margin-top: 14px;
+  max-height: 300px;
+  margin-bottom: 8px;
   border: 1px solid var(--line);
   border-radius: 14px;
   object-fit: contain;

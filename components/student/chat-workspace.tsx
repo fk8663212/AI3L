@@ -376,7 +376,7 @@ function SelfConceptPanel({
           />
         </>
       ) : (
-        <div className="artifact-card">
+        <div className="artifact-card handdrawn-concept-card">
           <div className="artifact-card-header">
             <div>
               <strong>我的原始手繪概念圖</strong>
@@ -385,14 +385,23 @@ function SelfConceptPanel({
             <CheckCircle2 size={20} aria-hidden="true" />
           </div>
           {saved.downloadUrl ? (
-            <Image
-              className="handdrawn-concept-image"
-              src={saved.downloadUrl}
-              alt="學生上傳的手繪概念圖"
-              width={1200}
-              height={900}
-              unoptimized
-            />
+            <a
+              className="handdrawn-concept-link"
+              href={saved.downloadUrl}
+              target="_blank"
+              rel="noreferrer"
+              title="開啟原尺寸圖片"
+            >
+              <Image
+                className="handdrawn-concept-image"
+                src={saved.downloadUrl}
+                alt="學生上傳的手繪概念圖"
+                width={640}
+                height={480}
+                unoptimized
+              />
+              <span>點擊預覽可查看原尺寸</span>
+            </a>
           ) : null}
         </div>
       )}

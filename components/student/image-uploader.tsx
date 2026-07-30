@@ -1,8 +1,8 @@
 "use client";
 
 import { upload } from "@vercel/blob/client";
-import { ImagePlus, LoaderCircle } from "lucide-react";
-import { useState } from "react";
+import { ImagePlus, LoaderCircle, X } from "lucide-react";
+import { useRef, useState } from "react";
 import type { SessionView } from "@/lib/services/session-service";
 
 type UploadStep = "idle" | "preparing" | "uploading" | "fallback" | "saving";
@@ -11,6 +11,8 @@ type ImageUploadStage = "visualization" | "self_concept_map";
 const DIRECT_UPLOAD_IDLE_TIMEOUT_MS = 12_000;
 const DIRECT_UPLOAD_TOTAL_TIMEOUT_MS = 45_000;
 const MAX_SOURCE_SIZE_BYTES = 25 * 1024 * 1024;
+
+class UploadCancelledError extends Error {}
 
 async function normalizeImage(file: File): Promise<File> {
   if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
@@ -73,20 +75,32 @@ export function ImageUploader({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [step, setStep] = useState<UploadStep>("idle");
   const [progress, setProgress] = useState(0);
+  const activeController = useRef<AbortController | null>(null);
+  const cancelRequested = useRef(false);
+
+  function cancelUpload() {
+    cancelRequested.current = true;
+    activeController.current?.abort();
+  }
 
   async function choose(file: File | undefined) {
     if (!file) return;
+    cancelRequested.current = false;
     setBusy(true);
     setError("");
+    setNotice("");
     setStep("preparing");
     setProgress(0);
     try {
       const normalized = await normalizeImage(file);
+      if (cancelRequested.current) throw new UploadCancelledError();
       setStep("uploading");
 
       const directController = new AbortController();
+      activeController.current = directController;
       let idleTimer: ReturnType<typeof setTimeout> | undefined;
       const resetIdleTimer = () => {
         if (idleTimer) clearTimeout(idleTimer);
@@ -124,11 +138,13 @@ export function ImageUploader({
           },
         );
       } catch {
+        if (cancelRequested.current) throw new UploadCancelledError();
         if (idleTimer) clearTimeout(idleTimer);
         clearTimeout(totalTimer);
         setStep("fallback");
         setProgress(0);
         const fallbackController = new AbortController();
+        activeController.current = fallbackController;
         const fallbackTimer = setTimeout(
           () => fallbackController.abort(),
           DIRECT_UPLOAD_TOTAL_TIMEOUT_MS,
@@ -139,6 +155,7 @@ export function ImageUploader({
             stage,
             fallbackController.signal,
           );
+          if (cancelRequested.current) throw new UploadCancelledError();
           onSaved(view);
           return;
         } finally {
@@ -149,6 +166,7 @@ export function ImageUploader({
         clearTimeout(totalTimer);
       }
 
+      activeController.current = null;
       setStep("saving");
       const response = await fetch("/api/student/uploads/finalize", {
         method: "POST",
@@ -162,6 +180,10 @@ export function ImageUploader({
       const payload = await readApiPayload(response);
       onSaved(payload.data);
     } catch (cause) {
+      if (cause instanceof UploadCancelledError || cancelRequested.current) {
+        setNotice("已取消上傳，可重新選擇圖片。");
+        return;
+      }
       const timedOut =
         cause instanceof DOMException && cause.name === "AbortError";
       setError(
@@ -172,6 +194,8 @@ export function ImageUploader({
             : "圖片保存失敗。",
       );
     } finally {
+      activeController.current = null;
+      cancelRequested.current = false;
       setBusy(false);
       setStep("idle");
       setProgress(0);
@@ -229,6 +253,17 @@ export function ImageUploader({
           )}
         </span>
       </label>
+      {busy && step !== "saving" ? (
+        <button
+          className="button secondary upload-cancel-button"
+          type="button"
+          onClick={cancelUpload}
+        >
+          <X size={16} aria-hidden="true" />
+          取消上傳
+        </button>
+      ) : null}
+      {notice ? <div className="info-banner">{notice}</div> : null}
       {error ? <div className="error-banner">{error}</div> : null}
     </div>
   );
