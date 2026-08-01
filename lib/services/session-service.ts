@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import {
   accessCodes,
@@ -20,6 +20,7 @@ import {
   normalizeTaskConfig,
   type TaskConfig,
 } from "@/lib/domain/default-task";
+import { withRecordingAnalysisStatus } from "@/lib/domain/recordings";
 import { ApiError } from "@/lib/security/request";
 
 export type ArtifactView = {
@@ -214,6 +215,26 @@ export async function recordConsent(sessionId: string): Promise<void> {
     .where(eq(studentSessions.id, sessionId));
 }
 
+export async function getSessionUploadAuthorization(sessionId: string) {
+  const db = getDb();
+  const rows = await db
+    .select({
+      currentStage: studentSessions.currentStage,
+      consentedAt: studentSessions.consentedAt,
+    })
+    .from(studentSessions)
+    .where(eq(studentSessions.id, sessionId))
+    .limit(1);
+  const session = rows[0];
+  if (!session) {
+    throw new ApiError(404, "SESSION_NOT_FOUND", "找不到學生工作階段。");
+  }
+  return {
+    currentStage: session.currentStage,
+    consented: Boolean(session.consentedAt),
+  };
+}
+
 export async function getSessionView(
   sessionId: string,
   options?: {
@@ -375,7 +396,7 @@ export async function saveArtifact(
   )[0];
 }
 
-export async function saveRecordingBundle(input: {
+export async function saveRecordingAudio(input: {
   sessionId: string;
   stageId: StageId;
   audio: {
@@ -384,8 +405,6 @@ export async function saveRecordingBundle(input: {
     sizeBytes: number;
     data: Record<string, unknown>;
   };
-  transcript: Record<string, unknown>;
-  evaluation: Record<string, unknown>;
 }) {
   const db = getDb();
   return db.transaction(async (tx) => {
@@ -402,18 +421,65 @@ export async function saveRecordingBundle(input: {
       throw new ApiError(409, "STAGE_LOCKED", "此階段目前不可操作。");
     }
 
-    await tx.insert(artifacts).values([
-      {
+    const inserted = await tx
+      .insert(artifacts)
+      .values({
         sessionId: input.sessionId,
         stageId: input.stageId,
         type: "audio",
         status: "ready",
-        data: input.audio.data,
+        data: withRecordingAnalysisStatus(input.audio.data, "pending", new Date()),
         storageProvider: "google-drive",
         storageLocator: input.audio.storageLocator,
         mimeType: input.audio.mimeType,
         sizeBytes: input.audio.sizeBytes,
-      },
+      })
+      .returning();
+    return inserted[0];
+  });
+}
+
+export async function saveRecordingAnalysis(input: {
+  sessionId: string;
+  stageId: StageId;
+  audioArtifactId: string;
+  transcript: Record<string, unknown>;
+  evaluation: Record<string, unknown>;
+}) {
+  const db = getDb();
+  return db.transaction(async (tx) => {
+    const audioRows = await tx
+      .select()
+      .from(artifacts)
+      .where(
+        and(
+          eq(artifacts.id, input.audioArtifactId),
+          eq(artifacts.sessionId, input.sessionId),
+          eq(artifacts.stageId, input.stageId),
+          eq(artifacts.type, "audio"),
+          isNull(artifacts.supersededAt),
+        ),
+      )
+      .limit(1);
+    const audio = audioRows[0];
+    if (!audio) {
+      throw new ApiError(404, "AUDIO_ARTIFACT_NOT_FOUND", "找不到已保存的錄音。");
+    }
+    if (audio.data.analysisStatus === "ready") return;
+
+    const completedAt = new Date();
+    await tx
+      .update(artifacts)
+      .set({ supersededAt: completedAt, updatedAt: completedAt })
+      .where(
+        and(
+          eq(artifacts.sessionId, input.sessionId),
+          eq(artifacts.stageId, input.stageId),
+          inArray(artifacts.type, ["transcript", "speech_evaluation"]),
+          isNull(artifacts.supersededAt),
+        ),
+      );
+    await tx.insert(artifacts).values([
       {
         sessionId: input.sessionId,
         stageId: input.stageId,
@@ -429,7 +495,41 @@ export async function saveRecordingBundle(input: {
         data: input.evaluation,
       },
     ]);
+    await tx
+      .update(artifacts)
+      .set({
+        data: withRecordingAnalysisStatus(audio.data, "ready", completedAt),
+        updatedAt: completedAt,
+      })
+      .where(eq(artifacts.id, audio.id));
   });
+}
+
+export async function markRecordingAnalysisFailed(input: {
+  sessionId: string;
+  stageId: StageId;
+  audioArtifactId: string;
+}) {
+  const db = getDb();
+  const audio = await db.query.artifacts.findFirst({
+    where: and(
+      eq(artifacts.id, input.audioArtifactId),
+      eq(artifacts.sessionId, input.sessionId),
+      eq(artifacts.stageId, input.stageId),
+      eq(artifacts.type, "audio"),
+      isNull(artifacts.supersededAt),
+    ),
+  });
+  if (!audio || audio.data.analysisStatus === "ready") return;
+
+  const failedAt = new Date();
+  await db
+    .update(artifacts)
+    .set({
+      data: withRecordingAnalysisStatus(audio.data, "failed", failedAt),
+      updatedAt: failedAt,
+    })
+    .where(eq(artifacts.id, audio.id));
 }
 
 export async function replaceArtifactData(

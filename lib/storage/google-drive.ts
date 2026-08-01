@@ -8,6 +8,9 @@ import { decryptSecret, encryptSecret } from "@/lib/security/crypto";
 import { ApiError } from "@/lib/security/request";
 
 const CONNECTION_KIND = "google_drive";
+export const GOOGLE_AUTH_TIMEOUT_MS = 10_000;
+export const GOOGLE_DRIVE_REQUEST_TIMEOUT_MS = 10_000;
+export const GOOGLE_DRIVE_UPLOAD_TIMEOUT_MS = 30_000;
 
 function oauthClient() {
   const clientId = process.env.GOOGLE_CLIENT_ID;
@@ -20,11 +23,16 @@ function oauthClient() {
       "Google OAuth 環境變數尚未設定。",
     );
   }
-  return new google.auth.OAuth2(
+  const client = new google.auth.OAuth2(
     clientId,
     clientSecret,
     `${appUrl.replace(/\/$/, "")}/api/admin/google/callback`,
   );
+  client.transporter.defaults = {
+    ...client.transporter.defaults,
+    timeout: GOOGLE_AUTH_TIMEOUT_MS,
+  };
+  return client;
 }
 
 export function googleAuthorizationUrl(state: string): string {
@@ -49,23 +57,29 @@ async function ensureFolder(
 ): Promise<string> {
   const escaped = name.replace(/'/g, "\\'");
   const parentClause = parentId ? ` and '${parentId}' in parents` : "";
-  const existing = await drive.files.list({
-    q: `name = '${escaped}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false${parentClause}`,
-    spaces: "drive",
-    fields: "files(id,name)",
-    pageSize: 1,
-  });
+  const existing = await drive.files.list(
+    {
+      q: `name = '${escaped}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false${parentClause}`,
+      spaces: "drive",
+      fields: "files(id,name)",
+      pageSize: 1,
+    },
+    { timeout: GOOGLE_DRIVE_REQUEST_TIMEOUT_MS },
+  );
   const found = existing.data.files?.[0]?.id;
   if (found) return found;
 
-  const created = await drive.files.create({
-    requestBody: {
-      name,
-      mimeType: "application/vnd.google-apps.folder",
-      parents: parentId ? [parentId] : undefined,
+  const created = await drive.files.create(
+    {
+      requestBody: {
+        name,
+        mimeType: "application/vnd.google-apps.folder",
+        parents: parentId ? [parentId] : undefined,
+      },
+      fields: "id",
     },
-    fields: "id",
-  });
+    { timeout: GOOGLE_DRIVE_REQUEST_TIMEOUT_MS },
+  );
   if (!created.data.id) throw new Error(`Could not create Drive folder: ${name}`);
   return created.data.id;
 }
@@ -135,9 +149,47 @@ export async function googleDriveStatus() {
           typeof connection.metadata.rootFolderId === "string"
             ? connection.metadata.rootFolderId
             : null,
+        verified: Boolean(connection.verifiedAt),
         verifiedAt: connection.verifiedAt?.toISOString() ?? null,
+        lastError:
+          typeof connection.metadata.lastError === "string"
+            ? connection.metadata.lastError
+            : null,
       }
-    : { connected: false, email: null, rootFolderId: null, verifiedAt: null };
+    : {
+        connected: false,
+        email: null,
+        rootFolderId: null,
+        verified: false,
+        verifiedAt: null,
+        lastError: null,
+      };
+}
+
+function driveErrorMessage(error: unknown): string {
+  return error instanceof Error
+    ? error.message.slice(0, 500)
+    : "Unknown Google Drive error";
+}
+
+async function updateDriveVerification(error?: unknown): Promise<void> {
+  const db = getDb();
+  const connection = await db.query.appConnections.findFirst({
+    where: eq(appConnections.kind, CONNECTION_KIND),
+  });
+  if (!connection) return;
+
+  await db
+    .update(appConnections)
+    .set({
+      verifiedAt: error ? null : new Date(),
+      metadata: {
+        ...connection.metadata,
+        lastError: error ? driveErrorMessage(error) : null,
+      },
+      updatedAt: new Date(),
+    })
+    .where(eq(appConnections.id, connection.id));
 }
 
 async function authorizedDrive() {
@@ -161,10 +213,41 @@ async function authorizedDrive() {
       encryptionTag: connection.encryptionTag,
     }),
   });
+  await client.getAccessToken();
+  const rootFolderId = connection.metadata.rootFolderId;
+  if (typeof rootFolderId !== "string" || !rootFolderId) {
+    throw new ApiError(
+      503,
+      "DRIVE_ROOT_FOLDER_MISSING",
+      "Google Drive 研究資料夾設定不完整，請重新連接。",
+    );
+  }
   return {
     drive: google.drive({ version: "v3", auth: client }),
-    rootFolderId: String(connection.metadata.rootFolderId),
+    rootFolderId,
   };
+}
+
+export async function testGoogleDriveConnection() {
+  try {
+    const { drive, rootFolderId } = await authorizedDrive();
+    const result = await drive.files.get(
+      { fileId: rootFolderId, fields: "id,name,trashed" },
+      { timeout: GOOGLE_DRIVE_REQUEST_TIMEOUT_MS },
+    );
+    if (!result.data.id || result.data.trashed) {
+      throw new Error("Google Drive research folder is unavailable.");
+    }
+    await updateDriveVerification();
+    return { verified: true, rootFolderId: result.data.id };
+  } catch (error) {
+    await updateDriveVerification(error);
+    throw new ApiError(
+      502,
+      "DRIVE_CONNECTION_FAILED",
+      "Google Drive 授權或研究資料夾無法使用，請重新連接後再試。",
+    );
+  }
 }
 
 export async function uploadAudioToDrive(input: {
@@ -175,27 +258,41 @@ export async function uploadAudioToDrive(input: {
   stageId: string;
   extension: string;
 }) {
-  const { drive, rootFolderId } = await authorizedDrive();
-  const taskFolder = await ensureFolder(drive, input.taskSlug, rootFolderId);
-  const sessionFolder = await ensureFolder(drive, input.sessionId, taskFolder);
-  const filename = `${input.stageId}-${new Date()
-    .toISOString()
-    .replace(/[:.]/g, "-")}.${input.extension}`;
+  try {
+    const { drive, rootFolderId } = await authorizedDrive();
+    const taskFolder = await ensureFolder(drive, input.taskSlug, rootFolderId);
+    const sessionFolder = await ensureFolder(drive, input.sessionId, taskFolder);
+    const filename = `${input.stageId}-${new Date()
+      .toISOString()
+      .replace(/[:.]/g, "-")}.${input.extension}`;
 
-  const created = await drive.files.create({
-    requestBody: {
-      name: filename,
-      parents: [sessionFolder],
-      description: `AI3L speaking recording: ${input.stageId}`,
-    },
-    media: {
-      mimeType: input.mimeType,
-      body: Readable.fromWeb(input.stream as never),
-    },
-    fields: "id,name,mimeType,size,webViewLink,createdTime",
-  });
-  if (!created.data.id) throw new Error("Google Drive did not return a file ID.");
-  return created.data;
+    const created = await drive.files.create(
+      {
+        requestBody: {
+          name: filename,
+          parents: [sessionFolder],
+          description: `AI3L speaking recording: ${input.stageId}`,
+        },
+        media: {
+          mimeType: input.mimeType,
+          body: Readable.fromWeb(input.stream as never),
+        },
+        fields: "id,name,mimeType,size,webViewLink,createdTime",
+      },
+      { timeout: GOOGLE_DRIVE_UPLOAD_TIMEOUT_MS },
+    );
+    if (!created.data.id) throw new Error("Google Drive did not return a file ID.");
+    await updateDriveVerification();
+    return created.data;
+  } catch (error) {
+    await updateDriveVerification(error);
+    if (error instanceof ApiError) throw error;
+    throw new ApiError(
+      502,
+      "DRIVE_UPLOAD_FAILED",
+      "錄音無法存入 Google Drive，請管理員重新驗證 Drive 連線。",
+    );
+  }
 }
 
 export async function trashDriveFile(fileId: string): Promise<void> {

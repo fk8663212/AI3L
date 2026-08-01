@@ -9,6 +9,7 @@ import {
   publishTask,
   saveProviderCredential,
   saveTaskDraft,
+  testStoredGoogleDrive,
   testStoredProvider,
 } from "@/lib/services/admin-service";
 import {
@@ -59,6 +60,9 @@ const bodySchema = z.discriminatedUnion("action", [
     action: z.literal("test_provider"),
     provider: providerSchema,
     modelId: z.string().min(1).max(120),
+  }),
+  z.object({
+    action: z.literal("test_drive"),
   }),
   z.object({
     action: z.literal("add_model"),
@@ -139,6 +143,9 @@ export async function POST(request: Request) {
         break;
       case "test_provider":
         data = await testStoredProvider(body.provider, body.modelId);
+        break;
+      case "test_drive":
+        data = await testStoredGoogleDrive();
         break;
       case "add_model":
         await addCustomModel(body);

@@ -1,16 +1,17 @@
 "use client";
 
-import { upload } from "@vercel/blob/client";
+import { uploadPresigned } from "@vercel/blob/client";
 import { Mic, Pause, RotateCcw, UploadCloud } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { StageId } from "@/lib/domain/stages";
+import { normalizeAudioMimeType } from "@/lib/domain/recordings";
 import type { SessionView } from "@/lib/services/session-service";
 
 type SavePhase = "idle" | "uploading" | "processing";
 
 const UPLOAD_TIMEOUT_MS = 120_000;
-const PROCESSING_TIMEOUT_MS = 190_000;
-const RECONCILE_TIMEOUT_MS = 30_000;
+const PROCESSING_TIMEOUT_MS = 75_000;
+const RECONCILE_TIMEOUT_MS = 15_000;
 
 function preferredMimeType(): string {
   const candidates = [
@@ -183,19 +184,20 @@ export function AudioRecorder({
     let activePhase: SavePhase = "uploading";
     try {
       const extension = extensionForMime(blob.type);
+      const uploadContentType = normalizeAudioMimeType(blob.type);
       const pathname = `student/${sessionId}/${stage}/recording.${extension}`;
       const uploadController = new AbortController();
       const uploadTimeout = window.setTimeout(
         () => uploadController.abort(),
         UPLOAD_TIMEOUT_MS,
       );
-      let result: Awaited<ReturnType<typeof upload>>;
+      let result: Awaited<ReturnType<typeof uploadPresigned>>;
       try {
-        result = await upload(pathname, blob, {
+        result = await uploadPresigned(pathname, blob, {
           access: "private",
           handleUploadUrl: "/api/student/uploads/blob",
           clientPayload: JSON.stringify({ kind: "audio", stage }),
-          contentType: blob.type || "audio/webm",
+          contentType: uploadContentType,
           abortSignal: uploadController.signal,
           onUploadProgress: ({ percentage }) => {
             setUploadProgress(Math.round(percentage));
@@ -258,7 +260,7 @@ export function AudioRecorder({
         setError(
           activePhase === "uploading"
             ? "錄音上傳逾時，請確認網路連線後重試。"
-            : "錄音處理超過預期時間，請稍後重試；已完成的錄音不會重複保存。",
+            : "錄音存入 Google Drive 超過預期時間，請稍後重試；已完成的錄音不會重複保存。",
         );
       } else {
         setError(cause instanceof Error ? cause.message : "錄音保存失敗。");
@@ -272,7 +274,7 @@ export function AudioRecorder({
   const busyLabel =
     savePhase === "uploading"
       ? `正在上傳錄音 ${uploadProgress}%`
-      : "正在轉存 Drive 並進行 AI 分析…";
+      : "正在存入 Google Drive…";
 
   return (
     <div>
@@ -331,7 +333,7 @@ export function AudioRecorder({
         <div className="upload-status" role="status" aria-live="polite">
           {savePhase === "uploading"
             ? "正在安全上傳錄音，請勿關閉頁面。"
-            : "錄音已上傳，正在同時轉存 Google Drive、產生逐字稿與口說評估。"}
+            : "錄音已上傳，正在存入 Google Drive；逐字稿與口說評估會在背景繼續處理。"}
         </div>
       ) : null}
       {error ? <div className="error-banner">{error}</div> : null}

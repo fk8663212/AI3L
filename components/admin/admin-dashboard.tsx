@@ -217,8 +217,26 @@ function ProviderCard({
   );
 }
 
-function OverviewTab({ data }: { data: Overview }) {
+function OverviewTab({
+  data,
+  action,
+}: {
+  data: Overview;
+  action: (
+    payload: Record<string, unknown>,
+  ) => Promise<Record<string, unknown> | null>;
+}) {
   const completed = data.sessionStats.completed;
+  const [testingDrive, setTestingDrive] = useState(false);
+  const [driveMessage, setDriveMessage] = useState("");
+
+  async function testDrive() {
+    setTestingDrive(true);
+    setDriveMessage("");
+    const result = await action({ action: "test_drive" });
+    if (result) setDriveMessage("Google Drive 授權與研究資料夾均可正常使用。");
+    setTestingDrive(false);
+  }
   return (
     <div className="section-stack">
       <div className="metric-grid">
@@ -264,10 +282,16 @@ function OverviewTab({ data }: { data: Overview }) {
             })}
             <div className="stage-panel-row">
               <span
-                className={`status-dot ${data.drive.connected ? "good" : "bad"}`}
+                className={`status-dot ${data.drive.verified ? "good" : "bad"}`}
               />
               <strong style={{ flex: 1 }}>Google Drive</strong>
-              <small>{data.drive.connected ? "已連接" : "尚未完成"}</small>
+              <small>
+                {data.drive.verified
+                  ? "已驗證"
+                  : data.drive.connected
+                    ? "需重新驗證"
+                    : "尚未完成"}
+              </small>
             </div>
           </div>
         </div>
@@ -275,18 +299,53 @@ function OverviewTab({ data }: { data: Overview }) {
           <h2>Google Drive 錄音庫</h2>
           {data.drive.connected ? (
             <>
-              <div className="success-banner">
-                <CheckCircle2 size={15} /> 已連接 {data.drive.email}
+              {data.drive.verified ? (
+                <div className="success-banner">
+                  <CheckCircle2 size={15} /> 已驗證 {data.drive.email}
+                </div>
+              ) : (
+                <div className="error-banner">
+                  Drive 授權尚未通過即時驗證，學生錄音將無法保存。
+                </div>
+              )}
+              {data.drive.lastError ? (
+                <div className="error-banner">{data.drive.lastError}</div>
+              ) : null}
+              {driveMessage ? (
+                <div className="success-banner">{driveMessage}</div>
+              ) : null}
+              <div className="stage-panel-row">
+                <button
+                  className="button"
+                  type="button"
+                  disabled={testingDrive}
+                  onClick={testDrive}
+                >
+                  {testingDrive ? (
+                    <LoaderCircle className="spin" size={16} />
+                  ) : (
+                    <RefreshCw size={16} />
+                  )}
+                  即時測試 Drive
+                </button>
+                {data.drive.rootFolderId ? (
+                  <a
+                    className="button secondary"
+                    href={`https://drive.google.com/drive/folders/${data.drive.rootFolderId}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <Link2 size={16} />
+                    開啟研究資料夾
+                  </a>
+                ) : null}
+                {!data.drive.verified ? (
+                  <a className="button secondary" href="/api/admin/google/connect">
+                    <Link2 size={16} />
+                    重新連接
+                  </a>
+                ) : null}
               </div>
-              <a
-                className="button secondary"
-                href={`https://drive.google.com/drive/folders/${data.drive.rootFolderId}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <Link2 size={16} />
-                開啟研究資料夾
-              </a>
             </>
           ) : (
             <>
@@ -1492,6 +1551,11 @@ export function AdminDashboard({
       return (body.data ?? {}) as Record<string, unknown>;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "操作失敗。");
+      try {
+        await refresh();
+      } catch {
+        // Keep the original action error when the overview cannot be refreshed.
+      }
       return null;
     } finally {
       setBusy(false);
@@ -1574,7 +1638,7 @@ export function AdminDashboard({
             <LoaderCircle className="spin" size={16} /> 正在處理管理操作…
           </div>
         ) : null}
-        {tab === "overview" ? <OverviewTab data={data} /> : null}
+        {tab === "overview" ? <OverviewTab data={data} action={action} /> : null}
         {tab === "providers" ? (
           <ProvidersTab data={data} action={action} />
         ) : null}

@@ -2,6 +2,10 @@ import { del, get, head } from "@vercel/blob";
 import { after, NextResponse } from "next/server";
 import { z } from "zod";
 import {
+  isSupportedAudioMimeType,
+  normalizeAudioMimeType,
+} from "@/lib/domain/recordings";
+import {
   apiErrorResponse,
   ApiError,
   assertSameOrigin,
@@ -11,8 +15,10 @@ import { analyzeRecording } from "@/lib/ai/voice-service";
 import { precomputeImageAnalysisAfterUpload } from "@/lib/ai/provider-service";
 import {
   getSessionView,
+  markRecordingAnalysisFailed,
+  saveRecordingAnalysis,
+  saveRecordingAudio,
   saveArtifact,
-  saveRecordingBundle,
 } from "@/lib/services/session-service";
 import {
   trashDriveFile,
@@ -20,6 +26,10 @@ import {
 } from "@/lib/storage/google-drive";
 
 export const maxDuration = 180;
+
+const BLOB_METADATA_TIMEOUT_MS = 10_000;
+const BLOB_DOWNLOAD_TIMEOUT_MS = 20_000;
+const BLOB_CLEANUP_TIMEOUT_MS = 10_000;
 
 const bodySchema = z.object({
   kind: z.enum(["image", "audio"]),
@@ -43,6 +53,7 @@ function extensionForMime(mime: string): string {
 
 export async function POST(request: Request) {
   let driveFileId: string | undefined;
+  let audioSaved = false;
   try {
     assertSameOrigin(request);
     const claims = await getStudentClaims();
@@ -61,7 +72,9 @@ export async function POST(request: Request) {
       throw new ApiError(400, "INVALID_UPLOAD", "此階段不接受錄音。");
     }
 
-    const metadata = await head(body.url);
+    const metadata = await head(body.url, {
+      abortSignal: AbortSignal.timeout(BLOB_METADATA_TIMEOUT_MS),
+    });
     const expectedPrefix = `student/${claims.sessionId}/${body.stage}/`;
     if (!metadata.pathname.startsWith(expectedPrefix)) {
       throw new ApiError(403, "INVALID_UPLOAD_OWNER", "檔案不屬於此工作階段。");
@@ -74,6 +87,15 @@ export async function POST(request: Request) {
         artifact.data.stagingPathname === metadata.pathname,
     );
     if (existing) {
+      if (body.kind === "audio") {
+        try {
+          await del(body.url, {
+            abortSignal: AbortSignal.timeout(BLOB_CLEANUP_TIMEOUT_MS),
+          });
+        } catch {
+          // The persisted Drive artifact is authoritative; cleanup is best-effort.
+        }
+      }
       return NextResponse.json({ ok: true, data: view });
     }
 
@@ -103,7 +125,7 @@ export async function POST(request: Request) {
         );
       }
     } else {
-      if (!metadata.contentType.startsWith("audio/")) {
+      if (!isSupportedAudioMimeType(metadata.contentType)) {
         throw new ApiError(400, "INVALID_AUDIO", "上傳檔案不是支援的音訊。");
       }
       const stageConfig = view.task.config.stageConfig[body.stage];
@@ -120,7 +142,10 @@ export async function POST(request: Request) {
           `錄音長度必須介於 ${minimumSeconds} 到 ${maximumSeconds} 秒。`,
         );
       }
-      const source = await get(body.url, { access: "private" });
+      const source = await get(body.url, {
+        access: "private",
+        abortSignal: AbortSignal.timeout(BLOB_DOWNLOAD_TIMEOUT_MS),
+      });
       if (!source || source.statusCode === 304 || !source.stream) {
         throw new ApiError(404, "AUDIO_NOT_FOUND", "找不到暫存錄音。");
       }
@@ -128,41 +153,24 @@ export async function POST(request: Request) {
       const bytes = new Uint8Array(
         await new Response(source.stream).arrayBuffer(),
       );
-      const extension = extensionForMime(metadata.contentType);
-      const [driveResult, analysisResult] = await Promise.allSettled([
-        uploadAudioToDrive({
-          stream: new Blob([bytes], { type: metadata.contentType }).stream(),
-          mimeType: metadata.contentType,
-          taskSlug: view.task.id,
-          sessionId: claims.sessionId,
-          stageId: body.stage,
-          extension,
-        }),
-        analyzeRecording({
-          sessionId: claims.sessionId,
-          stageId: body.stage,
-          mimeType: metadata.contentType,
-          bytes,
-          filename: `${body.stage}.${extension}`,
-          durationSeconds,
-        }),
-      ]);
-
-      if (driveResult.status === "fulfilled") {
-        driveFileId = driveResult.value.id ?? undefined;
-      }
-      if (driveResult.status === "rejected") throw driveResult.reason;
+      const audioMimeType = normalizeAudioMimeType(metadata.contentType);
+      const extension = extensionForMime(audioMimeType);
+      const driveFile = await uploadAudioToDrive({
+        stream: new Blob([bytes], { type: audioMimeType }).stream(),
+        mimeType: audioMimeType,
+        taskSlug: view.task.id,
+        sessionId: claims.sessionId,
+        stageId: body.stage,
+        extension,
+      });
+      driveFileId = driveFile.id ?? undefined;
       if (!driveFileId) throw new Error("Drive upload completed without file ID.");
-      if (analysisResult.status === "rejected") throw analysisResult.reason;
-
-      const driveFile = driveResult.value;
-      const analysis = analysisResult.value;
-      await saveRecordingBundle({
+      const audioArtifact = await saveRecordingAudio({
         sessionId: claims.sessionId,
         stageId: body.stage,
         audio: {
           storageLocator: driveFileId,
-          mimeType: metadata.contentType,
+          mimeType: audioMimeType,
           sizeBytes: Number(driveFile.size ?? metadata.size),
           data: {
             driveName: driveFile.name,
@@ -171,10 +179,66 @@ export async function POST(request: Request) {
             stagingPathname: metadata.pathname,
           },
         },
-        transcript: analysis.transcript,
-        evaluation: analysis.evaluation,
       });
-      await del(body.url);
+      if (!audioArtifact) {
+        throw new Error("Recording was saved without an artifact ID.");
+      }
+      audioSaved = true;
+
+      try {
+        await del(body.url, {
+          abortSignal: AbortSignal.timeout(BLOB_CLEANUP_TIMEOUT_MS),
+        });
+      } catch (error) {
+        console.error("Temporary recording cleanup failed", {
+          sessionId: claims.sessionId,
+          stageId: body.stage,
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
+
+      after(async () => {
+        try {
+          const analysis = await analyzeRecording({
+            sessionId: claims.sessionId,
+            stageId: body.stage,
+            mimeType: audioMimeType,
+            bytes,
+            filename: `${body.stage}.${extension}`,
+            durationSeconds,
+            audioArtifactId: audioArtifact.id,
+          });
+          await saveRecordingAnalysis({
+            sessionId: claims.sessionId,
+            stageId: body.stage,
+            audioArtifactId: audioArtifact.id,
+            transcript: analysis.transcript,
+            evaluation: analysis.evaluation,
+          });
+        } catch (error) {
+          try {
+            await markRecordingAnalysisFailed({
+              sessionId: claims.sessionId,
+              stageId: body.stage,
+              audioArtifactId: audioArtifact.id,
+            });
+          } catch (statusError) {
+            console.error("Recording analysis failure status could not be saved", {
+              sessionId: claims.sessionId,
+              stageId: body.stage,
+              error:
+                statusError instanceof Error
+                  ? statusError.message
+                  : "Unknown error",
+            });
+          }
+          console.error("Recording analysis failed after Drive save", {
+            sessionId: claims.sessionId,
+            stageId: body.stage,
+            error: error instanceof Error ? error.message : "Unknown error",
+          });
+        }
+      });
     }
 
     return NextResponse.json({
@@ -182,7 +246,7 @@ export async function POST(request: Request) {
       data: await getSessionView(claims.sessionId),
     });
   } catch (error) {
-    if (driveFileId) {
+    if (driveFileId && !audioSaved) {
       try {
         await trashDriveFile(driveFileId);
       } catch {

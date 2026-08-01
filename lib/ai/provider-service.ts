@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { del, get, put } from "@vercel/blob";
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import sharp from "sharp";
 import { getDb } from "@/lib/db/client";
 import {
@@ -50,6 +50,7 @@ export async function taskAIContext(sessionId: string) {
     where: and(
       eq(providerCredentials.provider, found.task.provider),
       eq(providerCredentials.enabled, true),
+      isNotNull(providerCredentials.verifiedAt),
     ),
   });
   if (!credential) {

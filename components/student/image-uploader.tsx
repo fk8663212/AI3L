@@ -1,6 +1,6 @@
 "use client";
 
-import { upload } from "@vercel/blob/client";
+import { uploadPresigned } from "@vercel/blob/client";
 import { ImagePlus, LoaderCircle, X } from "lucide-react";
 import { useRef, useState } from "react";
 import type { SessionView } from "@/lib/services/session-service";
@@ -166,11 +166,11 @@ export function ImageUploader({
         DIRECT_UPLOAD_TOTAL_TIMEOUT_MS,
       );
 
-      let result: Awaited<ReturnType<typeof upload>>;
+      let result: Awaited<ReturnType<typeof uploadPresigned>>;
       try {
         const filename =
           stage === "visualization" ? "drawing.webp" : "concept-map.webp";
-        result = await upload(
+        result = await uploadPresigned(
           `student/${sessionId}/${stage}/${filename}`,
           normalized,
           {

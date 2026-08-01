@@ -20,6 +20,25 @@ export type BinaryInput = {
 };
 
 export const OPENAI_TRANSCRIPTION_MODEL = "gpt-4o-transcribe";
+export const AI_REQUEST_TIMEOUT_MS = 45_000;
+
+function openAIClient(apiKey: string): OpenAI {
+  return new OpenAI({
+    apiKey,
+    timeout: AI_REQUEST_TIMEOUT_MS,
+    maxRetries: 0,
+  });
+}
+
+function googleAIClient(apiKey: string): GoogleGenAI {
+  return new GoogleGenAI({
+    apiKey,
+    httpOptions: {
+      timeout: AI_REQUEST_TIMEOUT_MS,
+      retryOptions: { attempts: 1 },
+    },
+  });
+}
 
 export type StructuredGeneration<T> = {
   value: T;
@@ -115,7 +134,7 @@ function cleanJson(text: string): string {
 async function generateOpenAI<T>(
   input: GenerateInput<T>,
 ): Promise<StructuredGeneration<T>> {
-  const client = new OpenAI({ apiKey: input.apiKey });
+  const client = openAIClient(input.apiKey);
   const content: OpenAI.Responses.ResponseInputContent[] = [
     { type: "input_text", text: input.prompt },
   ];
@@ -167,7 +186,7 @@ async function generateOpenAI<T>(
 async function generateGoogle<T>(
   input: GenerateInput<T>,
 ): Promise<StructuredGeneration<T>> {
-  const client = new GoogleGenAI({ apiKey: input.apiKey });
+  const client = googleAIClient(input.apiKey);
   const schema = googleResponseJsonSchema(input.schema);
   const imageParts: Array<
     { inlineData: { data: string; mimeType: string } }
@@ -272,10 +291,10 @@ export async function testProviderConnection(input: {
     ok: z.literal(true),
   });
   if (input.provider === "openai") {
-    const client = new OpenAI({ apiKey: input.apiKey });
+    const client = openAIClient(input.apiKey);
     await client.models.retrieve(input.modelId);
   } else {
-    const client = new GoogleGenAI({ apiKey: input.apiKey });
+    const client = googleAIClient(input.apiKey);
     await client.models.get({ model: input.modelId });
   }
 
@@ -301,7 +320,7 @@ export async function transcribeAudio(input: {
   transcriptionTemplate?: string;
 }): Promise<StructuredGeneration<Transcript>> {
   if (input.provider === "openai") {
-    const client = new OpenAI({ apiKey: input.apiKey });
+    const client = openAIClient(input.apiKey);
     const response = await client.audio.transcriptions.create({
       file: new File([Buffer.from(input.bytes)], input.filename, {
         type: input.mimeType,

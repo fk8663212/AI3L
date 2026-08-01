@@ -84,7 +84,7 @@ Git 連接完成後，推送 `main` 會建立 Production deployment，其他 bra
 4. Region 選 **Singapore (`sin1`)**。Blob 建立後不能修改 access mode 或 region。
 5. 連接到目前 Project。
 
-連接後，Vercel 會提供 `BLOB_READ_WRITE_TOKEN`，或在新版 Production Functions 使用短效 OIDC。不要自行把 Blob token 寫入 Git。
+連接後，Vercel 會提供 `BLOB_READ_WRITE_TOKEN`；新版 Production Functions 可改用短效 OIDC，但必須同時提供 `BLOB_STORE_ID`，讓系統簽發限時、限路徑的學生上傳網址。不要自行把 Blob token 寫入 Git。
 
 ## 5. 產生網站密鑰與管理員密碼
 
@@ -161,7 +161,8 @@ URI 的 `https`、網域、大小寫、路徑與結尾斜線必須完全相同�
 | `NEXT_PUBLIC_APP_URL` | Production origin，例如 `https://ddc.vercel.app` | 否 |
 | `GOOGLE_CLIENT_ID` | Google Cloud | 是 |
 | `GOOGLE_CLIENT_SECRET` | Google Cloud | 是 |
-| `BLOB_READ_WRITE_TOKEN` | Blob 自動加入；OIDC 模式可能不顯示 | 是 |
+| `BLOB_READ_WRITE_TOKEN` | Blob 傳統驗證；使用 OIDC 時可不設定 | 否 |
+| `BLOB_STORE_ID` | Blob OIDC 模式簽發限時上傳網址時使用 | OIDC 模式為是 |
 
 `NEXT_PUBLIC_APP_URL` 不可包含結尾斜線、callback 路徑或查詢參數。
 

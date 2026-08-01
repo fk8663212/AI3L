@@ -30,7 +30,10 @@ import {
   hashAccessCode,
 } from "@/lib/security/crypto";
 import { ApiError } from "@/lib/security/request";
-import { googleDriveStatus } from "@/lib/storage/google-drive";
+import {
+  googleDriveStatus,
+  testGoogleDriveConnection,
+} from "@/lib/storage/google-drive";
 
 export const PRESET_MODELS = [
   {
@@ -231,6 +234,14 @@ export async function testStoredProvider(provider: AIProviderName, modelId: stri
       .where(eq(providerCredentials.id, row.id));
     throw new ApiError(502, "PROVIDER_TEST_FAILED", message);
   }
+}
+
+export async function testStoredGoogleDrive() {
+  const result = await testGoogleDriveConnection();
+  await audit("drive.connection_tested", "app_connection", "google_drive", {
+    verified: true,
+  });
+  return result;
 }
 
 export async function addCustomModel(input: {
@@ -507,11 +518,13 @@ export async function publishTask(taskId: string): Promise<void> {
       "此研究流程需要支援圖片與結構化輸出的模型。",
     );
   }
-  if (!(await googleDriveStatus()).connected) {
+  try {
+    await testGoogleDriveConnection();
+  } catch {
     throw new ApiError(
       409,
       "DRIVE_NOT_CONNECTED",
-      "發布前必須連接 Google Drive，確保學生錄音可被保存。",
+      "發布前必須通過 Google Drive 即時驗證，確保學生錄音可被保存。",
     );
   }
   await db

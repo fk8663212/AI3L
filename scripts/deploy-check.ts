@@ -82,6 +82,12 @@ if (
   );
 }
 
+if (!process.env.BLOB_READ_WRITE_TOKEN && !process.env.BLOB_STORE_ID) {
+  errors.push(
+    "使用 Vercel Blob OIDC 時必須同時提供 BLOB_STORE_ID，才能簽發學生上傳網址",
+  );
+}
+
 if (warnings.length) {
   console.log("部署提醒：");
   for (const warning of warnings) console.log(`- ${warning}`);

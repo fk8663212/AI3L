@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import {
   generateStructured,
   OPENAI_TRANSCRIPTION_MODEL,
@@ -11,7 +11,7 @@ import {
 } from "@/lib/ai/prompts";
 import { speechEvaluationSchema } from "@/lib/ai/schemas";
 import { getDb } from "@/lib/db/client";
-import { aiRuns } from "@/lib/db/schema";
+import { aiRuns, artifacts } from "@/lib/db/schema";
 import type { StageId } from "@/lib/domain/stages";
 import { hashForLog } from "@/lib/security/crypto";
 import { ApiError } from "@/lib/security/request";
@@ -71,6 +71,7 @@ export async function analyzeRecording(input: {
   mimeType: string;
   filename: string;
   durationSeconds: number;
+  audioArtifactId?: string;
 }) {
   if (!RECORDING_STAGES.has(input.stageId)) {
     throw new ApiError(400, "INVALID_RECORDING_STAGE", "此階段不接受錄音分析。");
@@ -80,7 +81,21 @@ export async function analyzeRecording(input: {
   const context = await taskAIContext(input.sessionId);
   const promptConfig = normalizeTaskConfig(context.task.config).promptConfig;
   if (context.session.currentStage !== input.stageId) {
-    throw new ApiError(409, "STAGE_LOCKED", "此錄音階段目前不可操作。");
+    const savedAudio = input.audioArtifactId
+      ? await db.query.artifacts.findFirst({
+          where: and(
+            eq(artifacts.id, input.audioArtifactId),
+            eq(artifacts.sessionId, input.sessionId),
+            eq(artifacts.stageId, input.stageId),
+            eq(artifacts.type, "audio"),
+            eq(artifacts.storageProvider, "google-drive"),
+            isNull(artifacts.supersededAt),
+          ),
+        })
+      : null;
+    if (!savedAudio) {
+      throw new ApiError(409, "STAGE_LOCKED", "目前階段不接受這筆錄音分析。");
+    }
   }
 
   const transcriptionModel =
