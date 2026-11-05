@@ -33,8 +33,10 @@ import {
   encryptSecret,
 } from "@/lib/security/crypto";
 import { ApiError } from "@/lib/security/request";
-import { listRecordingAnalysisIssues } from "@/lib/services/recording-service";
-import { listRetentionExpiredSessions } from "@/lib/services/participant-data-service";
+import {
+  countRecordingAnalysisIssues,
+  countRetentionExpired,
+} from "@/lib/services/attention-counts";
 import {
   googleDriveStatus,
   testGoogleDriveConnection,
@@ -134,10 +136,21 @@ export async function adminOverview() {
         count: sql<number>`count(*)`,
       })
       .from(studentSessions)
-      .groupBy(studentSessions.currentStage, sql`${studentSessions.completedAt} is not null`),
-    db.select({ count: sql<number>`count(*)` }).from(accessCodes),
-    listRecordingAnalysisIssues(),
-    listRetentionExpiredSessions(),
+      .groupBy(studentSessions.currentStage, sql`${studentSessions.completedAt} is not null`)
+      .catch((error: unknown) => {
+        // The chart is informational; never fail the whole dashboard for it.
+        console.error("Admin overview stage counts failed", error);
+        return [];
+      }),
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(accessCodes)
+      .catch((error: unknown) => {
+        console.error("Admin overview code count failed", error);
+        return [{ count: 0 }];
+      }),
+    countRecordingAnalysisIssues(),
+    countRetentionExpired(),
   ]);
   const stageCounts = Object.fromEntries(STAGE_IDS.map((id) => [id, 0])) as Record<
     (typeof STAGE_IDS)[number],
@@ -176,8 +189,8 @@ export async function adminOverview() {
     progress: { stageCounts, completed: completedCount },
     accessCodeCount: Number(codeCountRows[0]?.count ?? 0),
     attention: {
-      recordingIssues: recordingIssues.length,
-      retentionExpired: retentionExpired.length,
+      recordingIssues,
+      retentionExpired,
     },
     taskDefaults: normalizeTaskConfig(DEFAULT_TASK_CONFIG),
   };
