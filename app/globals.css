@@ -499,6 +499,7 @@ button {
   min-height: 0;
   height: 100%;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto auto auto;
   overflow-y: auto;
   overscroll-behavior-y: contain;
@@ -622,9 +623,10 @@ button {
 }
 
 .chat-composer {
-  padding: 15px clamp(18px, 8vw, 120px) 18px;
+  padding: 12px clamp(18px, 8vw, 120px) 14px;
   border-top: 1px solid var(--line);
-  background: rgba(255, 253, 249, 0.96);
+  background: rgba(255, 253, 249, 0.97);
+  box-shadow: 0 -8px 24px rgba(42, 33, 22, 0.06);
 }
 
 .composer-inner {
@@ -651,6 +653,7 @@ button {
 
 .gate-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 14px;
@@ -2802,4 +2805,401 @@ button {
     max-height: none;
     overflow: visible;
   }
+}
+
+
+/* ---- Student workspace redesign ------------------------------------------ */
+
+.student-shell {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  overflow: hidden;
+}
+
+.student-shell .chat-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+  padding: 26px clamp(18px, 8vw, 120px) 42px;
+}
+
+.stage-progress {
+  height: 4px;
+  background: var(--line);
+}
+
+.stage-progress span {
+  display: block;
+  height: 100%;
+  background: var(--gold);
+  transition: width 0.4s ease;
+}
+
+.header-account {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.rail-signout.compact {
+  margin-top: 0;
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+
+.rail-signout.compact:hover {
+  color: var(--ink);
+  background: var(--canvas);
+}
+
+.stage-checklist {
+  margin: 14px 0 0;
+  padding: 12px 14px;
+  list-style: none;
+  display: grid;
+  gap: 7px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.stage-checklist li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--ink);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.stage-checklist li svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--ink-soft);
+}
+
+.stage-checklist li.done,
+.stage-checklist li.done svg {
+  color: var(--green);
+}
+
+.step-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.step-heading strong {
+  font-size: 0.95rem;
+}
+
+.step-number {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: white;
+  background: var(--ink);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.step-heading.done .step-number {
+  background: var(--green);
+}
+
+.panel-hint {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+.muted {
+  color: var(--ink-soft);
+}
+
+.review-item.undecided {
+  border-color: var(--gold);
+  background: #fffaf0;
+}
+
+.review-item-text small {
+  display: block;
+  margin-top: 4px;
+  color: var(--ink-soft);
+  font-size: 0.76rem;
+}
+
+.review-edit-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.decision-group button {
+  min-width: 52px;
+}
+
+.decision-group button.selected.accepted {
+  background: var(--green);
+}
+
+.decision-group button.selected.rejected {
+  background: var(--brand);
+}
+
+.decision-group button.selected.edited {
+  background: var(--ink);
+}
+
+.decision-group button:disabled {
+  cursor: not-allowed;
+}
+
+.hint-ladder {
+  display: grid;
+  gap: 8px;
+}
+
+.hint-level {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: white;
+}
+
+.hint-level.open {
+  border-color: var(--gold);
+  background: #fffbf2;
+}
+
+.hint-toggle {
+  width: 100%;
+  padding: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hint-toggle small {
+  color: var(--ink-soft);
+  font-weight: 500;
+}
+
+.hint-toggle:disabled {
+  color: var(--ink-soft);
+  cursor: not-allowed;
+}
+
+.hint-level ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  line-height: 1.6;
+}
+
+.hint-level .chip-list {
+  margin-top: 8px;
+}
+
+.busy-overlay {
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(4px);
+}
+
+.learning-history {
+  border: 1px solid var(--line);
+  border-radius: 17px;
+  background: #fffdfa;
+}
+
+.learning-history summary {
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.learning-history summary::-webkit-details-marker {
+  display: none;
+}
+
+.learning-history summary span {
+  font-weight: 800;
+}
+
+.learning-history summary small {
+  flex: 1;
+  color: var(--ink-soft);
+}
+
+.learning-history summary svg {
+  transition: transform 0.2s ease;
+}
+
+.learning-history[open] summary svg {
+  transform: rotate(180deg);
+}
+
+.history-stage {
+  padding: 2px 18px 14px;
+  border-top: 1px solid var(--line);
+}
+
+.history-stage h3 {
+  margin: 14px 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.95rem;
+}
+
+.history-stage h3 span {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--green);
+  background: var(--green-soft);
+  font-size: 0.72rem;
+}
+
+.history-item {
+  margin-bottom: 12px;
+  display: grid;
+  gap: 6px;
+}
+
+.history-label {
+  color: var(--ink-soft);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.history-image {
+  width: auto;
+  max-width: min(100%, 420px);
+  max-height: 320px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  object-fit: contain;
+  background: white;
+}
+
+.history-sentences {
+  margin: 0;
+  padding-left: 20px;
+  line-height: 1.6;
+}
+
+.history-locked {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.completion-card {
+  padding: 28px 22px;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  border: 1px solid #cfe7d8;
+  border-radius: 18px;
+  text-align: center;
+  color: var(--green);
+  background: #f1faf4;
+}
+
+.completion-card h2 {
+  margin: 4px 0 0;
+  color: var(--ink);
+}
+
+.completion-card p {
+  margin: 0;
+  color: var(--ink-soft);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .header-account {
+    display: flex;
+  }
+}
+
+@media (max-width: 640px) {
+  .student-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .student-workspace .stage-rail {
+    display: none;
+  }
+
+  .student-shell .chat-scroll {
+    padding: 18px 14px 30px;
+  }
+
+  .chat-header {
+    min-height: 0;
+    gap: 10px;
+  }
+
+  .header-account > span {
+    display: none;
+  }
+
+  .gate-row .button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .review-edit-row {
+    grid-template-columns: 1fr;
+  }
+
+  .decision-group {
+    width: 100%;
+  }
+
+  .decision-group button {
+    flex: 1;
+  }
+}
+
+/* A disabled next-stage button must not look like a faded call to action. */
+.gate-row .button:disabled {
+  opacity: 1;
+  color: var(--ink-soft);
+  background: var(--line);
+  box-shadow: none;
 }
