@@ -355,7 +355,119 @@ function SelfConceptPanel({ view, onSaved }: { view: SessionView; onSaved: (view
 
 type VocabularyChoice = "accepted" | "edited" | "rejected";
 
-function ImageAnalysisPanel({ view, perform }: { view: SessionView; perform: Perform }) {
+const BACKGROUND_AI_POLL_MS = 4000;
+const BACKGROUND_AI_START_GRACE_MS = 3000;
+
+/**
+ * Stage 4 and 5 AI results are prepared in the background when the previous
+ * stage is submitted. This waits for that run, starts one if none started
+ * (or it was for older work), and offers a retry when it failed.
+ */
+function useBackgroundAI(
+  view: SessionView,
+  stage: "image_analysis" | "ai_concept_map",
+  ready: boolean,
+  perform: Perform,
+  onSaved: (view: SessionView) => void,
+) {
+  const status = view.aiStatus[stage];
+  const [requesting, setRequesting] = useState(false);
+  const [autoStarted, setAutoStarted] = useState(false);
+
+  async function request() {
+    setRequesting(true);
+    await perform({ action: "run_ai", stage });
+    setRequesting(false);
+  }
+
+  // The page can arrive a moment before the background run registers, so look
+  // once more before starting a run of our own.
+  useEffect(() => {
+    if (ready || status !== "idle" || autoStarted) return;
+    const timer = window.setTimeout(async () => {
+      setAutoStarted(true);
+      try {
+        const response = await fetch("/api/student/session", { cache: "no-store" });
+        const payload = response.ok ? await response.json() : null;
+        const latest = payload?.data as SessionView | undefined;
+        if (latest && latest.aiStatus[stage] !== "idle") {
+          onSaved(latest);
+          return;
+        }
+      } catch {
+        // Fall through and start the run here.
+      }
+      void request();
+    }, BACKGROUND_AI_START_GRACE_MS);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, status, autoStarted]);
+
+  useEffect(() => {
+    if (ready || status !== "running") return;
+    const timer = window.setInterval(async () => {
+      try {
+        const response = await fetch("/api/student/session", { cache: "no-store" });
+        if (!response.ok) return;
+        const payload = await response.json();
+        if (payload.data) onSaved(payload.data as SessionView);
+      } catch {
+        // Try again on the next tick.
+      }
+    }, BACKGROUND_AI_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [ready, status, onSaved]);
+
+  const waiting =
+    requesting || status === "running" || (status === "idle" && !autoStarted);
+  return { waiting, request: () => void request() };
+}
+
+function BackgroundAIWaiting({
+  waiting,
+  onRetry,
+  what,
+  retryLabel,
+}: {
+  waiting: boolean;
+  onRetry: () => void;
+  what: string;
+  retryLabel: string;
+}) {
+  return (
+    <div className="stage-panel">
+      {waiting ? (
+        <div className="ai-note" role="status">
+          <LoaderCircle className="spin" size={18} aria-hidden="true" />
+          <div>
+            <strong>AI 正在看{what}</strong>
+            <p>通常需要半分鐘左右，完成後會自動顯示在這裡，不用重新整理。</p>
+          </div>
+        </div>
+      ) : (
+        <>
+          <p className="panel-hint">
+            AI 這次沒有完成{what}的分析。請按下面的按鈕再試一次；如果一直失敗，請告訴老師。
+          </p>
+          <button className="button" type="button" onClick={onRetry}>
+            <Sparkles size={17} />
+            {retryLabel}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ImageAnalysisPanel({
+  view,
+  perform,
+  onSaved,
+}: {
+  view: SessionView;
+  perform: Perform;
+  onSaved: (view: SessionView) => void;
+}) {
   const output = artifact(view, "image_analysis", "image_analysis");
   const annotatedOutput = artifact(view, "image_analysis", "annotated_image");
   const sourceImage = artifact(view, "visualization", "image");
@@ -393,17 +505,17 @@ function ImageAnalysisPanel({ view, perform }: { view: SessionView; perform: Per
     );
   });
 
-  if (!parsed.success || !preparedForCurrentImage || !sourceImage?.downloadUrl) {
+  const ready = parsed.success && preparedForCurrentImage && Boolean(sourceImage?.downloadUrl);
+  const background = useBackgroundAI(view, "image_analysis", ready, perform, onSaved);
+
+  if (!ready || !parsed.success || !annotated.success || !sourceImage?.downloadUrl) {
     return (
-      <div className="stage-panel">
-        <p className="panel-hint">
-          AI 會讀取你在第 2 階段畫的手繪圖，把它看到的東西用英文標在圖上。接著由你決定哪些詞是對的。
-        </p>
-        <button className="button" type="button" onClick={() => perform({ action: "run_ai", stage: "image_analysis" })}>
-          <Sparkles size={17} />
-          產生 AI 標記圖
-        </button>
-      </div>
+      <BackgroundAIWaiting
+        waiting={background.waiting}
+        onRetry={background.request}
+        what="你的手繪圖"
+        retryLabel="重新產生 AI 標記圖"
+      />
     );
   }
 
@@ -525,7 +637,15 @@ function ImageAnalysisPanel({ view, perform }: { view: SessionView; perform: Per
 
 type ConceptChoice = "keep" | "remove";
 
-function AIConceptPanel({ view, perform }: { view: SessionView; perform: Perform }) {
+function AIConceptPanel({
+  view,
+  perform,
+  onSaved,
+}: {
+  view: SessionView;
+  perform: Perform;
+  onSaved: (view: SessionView) => void;
+}) {
   const output =
     artifact(view, "ai_concept_map", "generated_concept_map") ??
     artifact(view, "ai_concept_map", "ai_concept_map");
@@ -544,17 +664,16 @@ function AIConceptPanel({ view, perform }: { view: SessionView; perform: Perform
     );
   });
 
+  const background = useBackgroundAI(view, "ai_concept_map", parsed.success, perform, onSaved);
+
   if (!parsed.success) {
     return (
-      <div className="stage-panel">
-        <p className="panel-hint">
-          AI 會讀取你的手繪概念圖和剛才保留的詞彙，畫出一張擴充版概念圖。新增的部分由你決定要不要保留。
-        </p>
-        <button className="button" type="button" onClick={() => perform({ action: "run_ai", stage: "ai_concept_map" })}>
-          <Sparkles size={17} />
-          產生擴充概念圖
-        </button>
-      </div>
+      <BackgroundAIWaiting
+        waiting={background.waiting}
+        onRetry={background.request}
+        what="你的手繪概念圖"
+        retryLabel="重新產生擴充概念圖"
+      />
     );
   }
 
@@ -836,9 +955,9 @@ function StagePanel({
     case "self_concept_map":
       return <SelfConceptPanel view={view} onSaved={onSaved} />;
     case "image_analysis":
-      return <ImageAnalysisPanel view={view} perform={perform} />;
+      return <ImageAnalysisPanel view={view} perform={perform} onSaved={onSaved} />;
     case "ai_concept_map":
-      return <AIConceptPanel view={view} perform={perform} />;
+      return <AIConceptPanel view={view} perform={perform} onSaved={onSaved} />;
     case "sentence_scaffold":
       return <SentencePanel view={view} perform={perform} onSaved={onSaved} />;
   }

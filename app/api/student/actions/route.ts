@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { z } from "zod";
 import {
   conceptEdgeSchema,
@@ -6,7 +6,11 @@ import {
   conceptNodeSchema,
   imageAnalysisSchema,
 } from "@/lib/ai/schemas";
-import { runStageAI } from "@/lib/ai/provider-service";
+import {
+  precomputeConceptMap,
+  precomputeImageAnalysis,
+  runStageAI,
+} from "@/lib/ai/provider-service";
 import {
   ReviewDecisionError,
   resolveConceptReview,
@@ -29,7 +33,8 @@ import {
   saveMessage,
 } from "@/lib/services/session-service";
 
-export const maxDuration = 60;
+// Long enough for the background AI runs started after stages 2 and 4.
+export const maxDuration = 180;
 
 const AI_RUN_LIMIT = 12;
 const AI_RUN_WINDOW_MS = 10 * 60 * 1000;
@@ -251,6 +256,17 @@ export async function POST(request: Request) {
           throw new ApiError(409, "STAGE_LOCKED", "不能完成非目前階段。");
         }
         await completeCurrentStage(claims.sessionId, body.stateVersion);
+        if (body.stage === "visualization") {
+          // The drawing and its labels are final now: analyse them while the
+          // student works on stage 3, so stage 4 only shows the result.
+          const sessionId = claims.sessionId;
+          after(() => precomputeImageAnalysis({ sessionId }));
+        } else if (body.stage === "image_analysis") {
+          // Same for stage 5: its inputs (the stage 3 drawing and the words
+          // just accepted) are final, so build the concept map now.
+          const sessionId = claims.sessionId;
+          after(() => precomputeConceptMap({ sessionId }));
+        }
         break;
     }
 

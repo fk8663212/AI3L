@@ -2,6 +2,7 @@ import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import {
   accessCodes,
+  aiRuns,
   artifacts,
   messages,
   stageAttempts,
@@ -73,7 +74,36 @@ export type SessionView = {
   artifacts: ArtifactView[];
   gate: ReturnType<typeof evaluateStageGate>;
   concealPriorStages: boolean;
+  /** Latest AI run per background stage, so stages 4 and 5 can wait for it. */
+  aiStatus: Record<BackgroundAIStage, AIRunStatus>;
 };
+
+export type BackgroundAIStage = "image_analysis" | "ai_concept_map";
+export type AIRunStatus = "idle" | "running" | "failed" | "ready";
+
+/** The artifact each background stage produces. */
+const BACKGROUND_AI_OUTPUT: Record<BackgroundAIStage, string> = {
+  image_analysis: "image_analysis",
+  ai_concept_map: "generated_concept_map",
+};
+
+/** A "running" row older than this was cut off by the function time limit. */
+const STALLED_AI_RUN_MS = 4 * 60 * 1000;
+
+export function aiRunStatusOf(
+  latestRun: { status: string; createdAt: Date } | undefined,
+  hasOutput: boolean,
+  now: number = Date.now(),
+): AIRunStatus {
+  if (hasOutput) return "ready";
+  if (!latestRun) return "idle";
+  if (latestRun.status === "running") {
+    return now - latestRun.createdAt.getTime() < STALLED_AI_RUN_MS
+      ? "running"
+      : "failed";
+  }
+  return latestRun.status === "failed" ? "failed" : "idle";
+}
 
 function arrayLength(data: Record<string, unknown>, key: string): number {
   const value = data[key];
@@ -263,7 +293,7 @@ export async function getSessionView(
   const found = joined[0];
   if (!found) throw new ApiError(404, "SESSION_NOT_FOUND", "找不到工作階段。");
 
-  const [messageRows, artifactRows] = await Promise.all([
+  const [messageRows, artifactRows, runRows] = await Promise.all([
     db.query.messages.findMany({
       where: eq(messages.sessionId, sessionId),
       orderBy: [asc(messages.createdAt)],
@@ -271,6 +301,14 @@ export async function getSessionView(
     db.query.artifacts.findMany({
       where: eq(artifacts.sessionId, sessionId),
       orderBy: [desc(artifacts.createdAt)],
+    }),
+    db.query.aiRuns.findMany({
+      columns: { stageId: true, status: true, createdAt: true },
+      where: and(
+        eq(aiRuns.sessionId, sessionId),
+        inArray(aiRuns.stageId, ["image_analysis", "ai_concept_map"]),
+      ),
+      orderBy: [desc(aiRuns.createdAt)],
     }),
   ]);
 
@@ -291,6 +329,16 @@ export async function getSessionView(
     found.session.currentStage,
   );
   const normalizedConfig = normalizeTaskConfig(found.task.config);
+  const backgroundStatus = (stage: BackgroundAIStage) =>
+    aiRunStatusOf(
+      runRows.find((run) => run.stageId === stage),
+      artifactRows.some(
+        (row) =>
+          row.stageId === stage &&
+          row.type === BACKGROUND_AI_OUTPUT[stage] &&
+          row.supersededAt === null,
+      ),
+    );
 
   return {
     session: {
@@ -363,6 +411,10 @@ export async function getSessionView(
       })),
     gate: evaluateStageGate(found.session.currentStage, evidence),
     concealPriorStages,
+    aiStatus: {
+      image_analysis: backgroundStatus("image_analysis"),
+      ai_concept_map: backgroundStatus("ai_concept_map"),
+    },
   };
 }
 
@@ -380,7 +432,8 @@ type ArtifactWriteInput = {
 };
 
 type ArtifactWriteOptions = {
-  allowWhenCurrentStage?: StageId;
+  /** Also accept the write while the student is in one of these stages. */
+  allowWhenCurrentStages?: StageId[];
 };
 
 type DbTransaction = Parameters<
@@ -404,7 +457,7 @@ async function assertArtifactWritable(
   if (!session) throw new ApiError(404, "SESSION_NOT_FOUND", "找不到工作階段。");
   if (
     session.currentStage !== input.stageId &&
-    session.currentStage !== options?.allowWhenCurrentStage
+    !options?.allowWhenCurrentStages?.includes(session.currentStage)
   ) {
     throw new ApiError(409, "STAGE_LOCKED", "此階段目前不可操作。");
   }
