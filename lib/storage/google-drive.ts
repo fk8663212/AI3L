@@ -12,22 +12,28 @@ export const GOOGLE_AUTH_TIMEOUT_MS = 10_000;
 export const GOOGLE_DRIVE_REQUEST_TIMEOUT_MS = 10_000;
 export const GOOGLE_DRIVE_UPLOAD_TIMEOUT_MS = 30_000;
 
-function oauthClient() {
+export const GOOGLE_CALLBACK_PATH = "/api/admin/google/callback";
+
+/** The OAuth redirect URI for an admin signed in on `origin`. */
+export function googleRedirectUri(origin: string): string {
+  return `${origin.replace(/\/$/, "")}${GOOGLE_CALLBACK_PATH}`;
+}
+
+/**
+ * `redirectUri` is only needed for the sign-in flow; refreshing a stored
+ * token does not use it.
+ */
+function oauthClient(redirectUri?: string) {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-  if (!clientId || !clientSecret || !appUrl) {
+  if (!clientId || !clientSecret) {
     throw new ApiError(
       503,
       "GOOGLE_OAUTH_NOT_CONFIGURED",
       "Google OAuth 環境變數尚未設定。",
     );
   }
-  const client = new google.auth.OAuth2(
-    clientId,
-    clientSecret,
-    `${appUrl.replace(/\/$/, "")}/api/admin/google/callback`,
-  );
+  const client = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
   client.transporter.defaults = {
     ...client.transporter.defaults,
     timeout: GOOGLE_AUTH_TIMEOUT_MS,
@@ -35,8 +41,11 @@ function oauthClient() {
   return client;
 }
 
-export function googleAuthorizationUrl(state: string): string {
-  const client = oauthClient();
+export function googleAuthorizationUrl(
+  state: string,
+  redirectUri: string,
+): string {
+  const client = oauthClient(redirectUri);
   return client.generateAuthUrl({
     access_type: "offline",
     include_granted_scopes: true,
@@ -84,8 +93,11 @@ async function ensureFolder(
   return created.data.id;
 }
 
-export async function completeGoogleConnection(code: string) {
-  const client = oauthClient();
+export async function completeGoogleConnection(
+  code: string,
+  redirectUri: string,
+) {
+  const client = oauthClient(redirectUri);
   const { tokens } = await client.getToken(code);
   if (!tokens.refresh_token) {
     throw new ApiError(

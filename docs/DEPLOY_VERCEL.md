@@ -251,7 +251,7 @@ Neon 尚未連接到這個 Vercel Project，或變數沒有勾選目前 deployme
 
 ### `redirect_uri_mismatch`
 
-Google Cloud 的 Authorized redirect URI 與 `NEXT_PUBLIC_APP_URL + /api/admin/google/callback` 不完全一致。特別檢查 `https` 與結尾斜線。
+Google Cloud 的 Authorized redirect URI 與「你目前開啟後台的網址 + `/api/admin/google/callback`」不完全一致。連接 Drive 時會回到你目前所在的網域（後台 Drive 卡片會顯示要登錄的完整 URI），所以用哪個網域登入後台，就要在 Google Cloud 登錄那個網域的 callback。特別檢查 `https` 與結尾斜線。
 
 ### Google 沒有回傳 refresh token
 

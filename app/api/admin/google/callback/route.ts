@@ -1,10 +1,17 @@
 import { NextResponse } from "next/server";
-import { completeGoogleConnection } from "@/lib/storage/google-drive";
+import {
+  completeGoogleConnection,
+  googleRedirectUri,
+} from "@/lib/storage/google-drive";
 import {
   getAdminClaims,
   verifyOAuthState,
 } from "@/lib/security/session";
-import { apiErrorResponse, ApiError } from "@/lib/security/request";
+import {
+  apiErrorResponse,
+  ApiError,
+  requestOrigin,
+} from "@/lib/security/request";
 
 export async function GET(request: Request) {
   try {
@@ -12,15 +19,24 @@ export async function GET(request: Request) {
       throw new ApiError(401, "UNAUTHORIZED", "請先登入管理後台。");
     }
     const url = new URL(request.url);
+    const origin = requestOrigin(request);
+    const googleError = url.searchParams.get("error");
+    if (googleError) {
+      throw new ApiError(
+        400,
+        "GOOGLE_OAUTH_DENIED",
+        `Google 未完成授權（${googleError}），請回到後台重新連接。`,
+      );
+    }
     const code = url.searchParams.get("code");
     const state = url.searchParams.get("state");
-    if (!code || !state || !(await verifyOAuthState(state))) {
-      throw new ApiError(400, "INVALID_OAUTH_CALLBACK", "Google OAuth 回傳無效。");
+    const verified = state ? await verifyOAuthState(state) : null;
+    // The flow must finish on the host it started on, with the same URI.
+    if (!code || !verified || verified.redirectUri !== googleRedirectUri(origin)) {
+      throw new ApiError(400, "INVALID_OAUTH_CALLBACK", "Google OAuth 回傳無效，請回到後台重新連接。");
     }
-    await completeGoogleConnection(code);
-    return NextResponse.redirect(
-      `${process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ?? url.origin}/admin?connected=drive`,
-    );
+    await completeGoogleConnection(code, verified.redirectUri);
+    return NextResponse.redirect(`${origin}/admin?connected=drive`);
   } catch (error) {
     return apiErrorResponse(error);
   }

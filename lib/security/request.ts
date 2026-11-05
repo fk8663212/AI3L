@@ -26,16 +26,22 @@ function originOf(value: string | undefined): string | null {
  * custom domains all work), plus the configured app URL and Vercel's own
  * deployment, branch and production hostnames.
  */
-export function allowedOrigins(request: Request): Set<string> {
+/** The origin the browser actually sent this request to. */
+export function requestOrigin(request: Request): string {
   const url = new URL(request.url);
   const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
   const host = forwardedHost || request.headers.get("host") || url.host;
   const proto =
     request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() ||
     url.protocol.replace(":", "");
+  return originOf(`${proto}://${host}`) ?? url.origin;
+}
+
+export function allowedOrigins(request: Request): Set<string> {
+  const url = new URL(request.url);
   return new Set(
     [
-      originOf(`${proto}://${host}`),
+      requestOrigin(request),
       url.origin,
       originOf(process.env.NEXT_PUBLIC_APP_URL),
       originOf(process.env.VERCEL_URL),

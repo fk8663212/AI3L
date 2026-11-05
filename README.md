@@ -83,7 +83,7 @@ OpenAI 錄音轉錄固定記錄為 `gpt-4o-transcribe`；其餘分析使用任�
 2. 在 Vercel Marketplace 建立 Neon；確認 `DATABASE_URL` 已注入。
 3. 建立 **Private** Blob store；確認 `BLOB_READ_WRITE_TOKEN` 已注入。
 4. 在 Production、Preview（需要時）設定 `.env.example` 中其餘變數。
-5. 將 `NEXT_PUBLIC_APP_URL` 設為正式 HTTPS 網域，更新 Google OAuth redirect URI。
+5. 將 `NEXT_PUBLIC_APP_URL` 設為正式 HTTPS 網域，並在 Google OAuth 登錄你實際開啟後台的網域的 callback（連接 Drive 時會回到目前所在的網域）。
 6. 先執行一次 `npm run db:migrate`，再部署。
 7. 在 `/admin` 完成 API Key、Drive、任務發布與代碼產生。
 
