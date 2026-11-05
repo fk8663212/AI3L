@@ -32,6 +32,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState, type FormEvent } from "react";
 import type { adminOverview } from "@/lib/services/admin-service";
 import type { AdminSessionListPage } from "@/lib/services/admin-session-service";
+import { AccessCodesTab } from "@/components/admin/access-codes-tab";
 import { STAGES, type StageId } from "@/lib/domain/stages";
 import { taskDeletionConfirmation } from "@/lib/domain/task-deletion";
 import {
@@ -40,7 +41,7 @@ import {
 } from "@/lib/domain/stage-override";
 
 type Overview = Awaited<ReturnType<typeof adminOverview>>;
-type Tab = "overview" | "providers" | "tasks" | "prompts" | "research";
+type Tab = "overview" | "providers" | "tasks" | "codes" | "prompts" | "research";
 type PromptConfig = Overview["taskDefaults"]["promptConfig"];
 
 const PROMPT_FIELDS: Array<{
@@ -714,8 +715,6 @@ function TasksTab({
         <table className="table">
           <thead>
             <tr>
-              <th>學生標籤</th>
-              <th>任務</th>
               <th>任務</th>
               <th>版本</th>
               <th>供應商／模型</th>
@@ -1524,6 +1523,7 @@ export function AdminDashboard({
         overview: ["控制中心", "掌握研究平台的連線與進度。"],
         providers: ["AI 與儲存", "管理伺服器端憑證及模型。"],
         tasks: ["研究任務", "發布不可變任務版本並產生學生代碼。"],
+        codes: ["學生代碼", "產生、設定期限、停用與刪除學生代碼。"],
         prompts: ["Prompt 與階段", "稽核七階段指示、AI 模板與上下文邊界。"],
         research: ["研究資料", "查看工作階段、覆寫流程與匯出資料。"],
       })[tab],
@@ -1590,6 +1590,7 @@ export function AdminDashboard({
     { id: "overview" as const, label: "控制中心", icon: LayoutDashboard },
     { id: "providers" as const, label: "AI 與儲存", icon: Bot },
     { id: "tasks" as const, label: "研究任務", icon: FileText },
+    { id: "codes" as const, label: "學生代碼", icon: KeyRound },
     { id: "prompts" as const, label: "Prompt 與階段", icon: Braces },
     { id: "research" as const, label: "研究資料", icon: Database },
   ];
@@ -1647,6 +1648,9 @@ export function AdminDashboard({
         ) : null}
         {tab === "tasks" ? (
           <TasksTab data={data} action={action} setCodes={setCodes} />
+        ) : null}
+        {tab === "codes" ? (
+          <AccessCodesTab data={data} action={action} setCodes={setCodes} />
         ) : null}
         {tab === "prompts" ? <PromptAuditTab data={data} /> : null}
         {tab === "research" ? (
