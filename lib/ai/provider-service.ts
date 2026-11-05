@@ -350,8 +350,9 @@ export async function runStageAI(
         {
           access: "private",
           contentType: "image/webp",
-          addRandomSuffix: false,
-          allowOverwrite: true,
+          // A unique URL per run: invalidating an older analysis deletes its
+          // blob by URL, which must never hit a newer run's annotated image.
+          addRandomSuffix: true,
         },
       );
       await replaceArtifactData(
