@@ -56,6 +56,7 @@ type Tab =
   | "prompts"
   | "research"
   | "audit";
+type ResearchView = "sessions" | "report" | "recordings" | "retention";
 type PromptConfig = Overview["taskDefaults"]["promptConfig"];
 
 const PROMPT_FIELDS: Array<{
@@ -235,15 +236,20 @@ function ProviderCard({
 function OverviewTab({
   data,
   action,
+  goTo,
 }: {
   data: Overview;
   action: (
     payload: Record<string, unknown>,
   ) => Promise<Record<string, unknown> | null>;
+  goTo: (tab: Tab, researchView?: ResearchView) => void;
 }) {
   const completed = data.sessionStats.completed;
+  const total = data.sessionStats.total;
   const [testingDrive, setTestingDrive] = useState(false);
   const [driveMessage, setDriveMessage] = useState("");
+  const publishedTasks = data.tasks.filter((task) => task.status === "published");
+  const largest = Math.max(1, ...Object.values(data.progress.stageCounts), data.progress.completed);
 
   async function testDrive() {
     setTestingDrive(true);
@@ -252,128 +258,169 @@ function OverviewTab({
     if (result) setDriveMessage("Google Drive 授權與研究資料夾均可正常使用。");
     setTestingDrive(false);
   }
+
+  const readiness = [
+    ...(["google", "openai"] as const).map((provider) => {
+      const configured = data.providers.find((item) => item.provider === provider);
+      return {
+        key: provider,
+        label: provider === "google" ? "Gemini API Key" : "OpenAI API Key",
+        ok: Boolean(configured?.verifiedAt),
+        detail: configured?.verifiedAt ? "已驗證" : "尚未設定",
+        optional: true,
+      };
+    }),
+    {
+      key: "drive",
+      label: "Google Drive 錄音庫",
+      ok: data.drive.verified,
+      detail: data.drive.verified ? "已驗證" : data.drive.connected ? "需重新驗證" : "尚未連接",
+      optional: false,
+    },
+    {
+      key: "tasks",
+      label: "已發布任務",
+      ok: publishedTasks.length > 0,
+      detail: `${publishedTasks.length} 個`,
+      optional: false,
+    },
+    {
+      key: "codes",
+      label: "學生代碼",
+      ok: data.accessCodeCount > 0,
+      detail: `${data.accessCodeCount} 組`,
+      optional: false,
+    },
+  ];
+  const anyProvider = readiness.some((item) => item.optional && item.ok);
+
   return (
     <div className="section-stack">
-      <div className="metric-grid">
+      <div className="metric-grid overview-metrics">
         <div className="metric-card">
-          <span>研究任務</span>
-          <strong>{data.tasks.length}</strong>
+          <span>參與學生</span>
+          <strong>{total}</strong>
+          <small>共 {data.accessCodeCount} 組代碼</small>
         </div>
         <div className="metric-card">
-          <span>學生工作階段</span>
-          <strong>{data.sessionStats.total}</strong>
+          <span>已完成</span>
+          <strong className="good">{completed}</strong>
+          <small>{total ? Math.round((completed / total) * 100) : 0}% 完成率</small>
+        </div>
+        <div className={`metric-card ${data.attention.recordingIssues ? "attention" : ""}`}>
+          <span>錄音分析待處理</span>
+          <strong>{data.attention.recordingIssues}</strong>
+          <button className="link-button" type="button" onClick={() => goTo("research", "recordings")}>
+            {data.attention.recordingIssues ? "前往重試" : "查看"}
+          </button>
         </div>
         <div className="metric-card">
-          <span>完成率</span>
-          <strong>
-            {data.sessionStats.total
-              ? Math.round((completed / data.sessionStats.total) * 100)
-              : 0}
-            %
-          </strong>
+          <span>超過保存期限</span>
+          <strong>{data.attention.retentionExpired}</strong>
+          <button className="link-button" type="button" onClick={() => goTo("research", "retention")}>
+            檢視
+          </button>
         </div>
       </div>
-      <div className="split-grid">
+
+      <div className="overview-grid">
         <div className="admin-card">
-          <h2>系統就緒狀態</h2>
-          <div className="section-stack">
-            {(["google", "openai"] as const).map((provider) => {
-              const configured = data.providers.find(
-                (item) => item.provider === provider,
-              );
+          <div className="card-heading">
+            <h2>學生停在哪一階段</h2>
+            <small>{total} 位學生</small>
+          </div>
+          <div className="stage-funnel">
+            {STAGES.map((stage) => {
+              const count = data.progress.stageCounts[stage.id];
               return (
-                <div className="stage-panel-row" key={provider}>
-                  <span
-                    className={`status-dot ${configured?.verifiedAt ? "good" : "bad"}`}
-                  />
-                  <strong style={{ flex: 1 }}>
-                    {provider === "google" ? "Gemini" : "OpenAI"}
-                  </strong>
-                  <small>
-                    {configured?.verifiedAt ? "已驗證" : "尚未完成"}
-                  </small>
+                <div className="funnel-row" key={stage.id}>
+                  <span>
+                    {stage.order} {stage.shortLabel}
+                  </span>
+                  <div className="funnel-track" aria-hidden="true">
+                    <div style={{ width: `${(count / largest) * 100}%` }} />
+                  </div>
+                  <strong>{count}</strong>
                 </div>
               );
             })}
-            <div className="stage-panel-row">
-              <span
-                className={`status-dot ${data.drive.verified ? "good" : "bad"}`}
-              />
-              <strong style={{ flex: 1 }}>Google Drive</strong>
-              <small>
-                {data.drive.verified
-                  ? "已驗證"
-                  : data.drive.connected
-                    ? "需重新驗證"
-                    : "尚未完成"}
-              </small>
+            <div className="funnel-row done">
+              <span>已完成</span>
+              <div className="funnel-track" aria-hidden="true">
+                <div style={{ width: `${(data.progress.completed / largest) * 100}%` }} />
+              </div>
+              <strong>{data.progress.completed}</strong>
             </div>
           </div>
         </div>
+
         <div className="admin-card">
-          <h2>Google Drive 錄音庫</h2>
-          {data.drive.connected ? (
-            <>
-              {data.drive.verified ? (
-                <div className="success-banner">
-                  <CheckCircle2 size={15} /> 已驗證 {data.drive.email}
+          <h2>系統就緒</h2>
+          <div className="readiness-list">
+            {readiness.map((item) => {
+              const good = item.ok || (item.optional && anyProvider);
+              return (
+                <div className={`readiness-item ${good ? "good" : "bad"}`} key={item.key}>
+                  {good ? <CheckCircle2 size={20} aria-hidden="true" /> : <AlertTriangle size={20} aria-hidden="true" />}
+                  <strong>{item.label}</strong>
+                  <small>{item.ok ? item.detail : item.optional && anyProvider ? "未使用" : item.detail}</small>
                 </div>
-              ) : (
-                <div className="error-banner">
-                  Drive 授權尚未通過即時驗證，學生錄音將無法保存。
-                </div>
-              )}
-              {data.drive.lastError ? (
-                <div className="error-banner">{data.drive.lastError}</div>
-              ) : null}
-              {driveMessage ? (
-                <div className="success-banner">{driveMessage}</div>
-              ) : null}
-              <div className="stage-panel-row">
-                <button
-                  className="button"
-                  type="button"
-                  disabled={testingDrive}
-                  onClick={testDrive}
-                >
-                  {testingDrive ? (
-                    <LoaderCircle className="spin" size={16} />
-                  ) : (
-                    <RefreshCw size={16} />
-                  )}
-                  即時測試 Drive
-                </button>
-                {data.drive.rootFolderId ? (
-                  <a
-                    className="button secondary"
-                    href={`https://drive.google.com/drive/folders/${data.drive.rootFolderId}`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    <Link2 size={16} />
-                    開啟研究資料夾
-                  </a>
-                ) : null}
-                {!data.drive.verified ? (
-                  <a className="button secondary" href="/api/admin/google/connect">
-                    <Link2 size={16} />
-                    重新連接
-                  </a>
-                ) : null}
-              </div>
-            </>
-          ) : (
-            <>
-              <p style={{ color: "var(--ink-soft)", lineHeight: 1.6 }}>
-                連接管理員 Google 帳號後，系統會建立私人研究資料夾並保存學生錄音。
-              </p>
-              <a className="button" href="/api/admin/google/connect">
-                <Link2 size={16} />
-                連接 Google Drive
-              </a>
-            </>
-          )}
+              );
+            })}
+          </div>
+          {!data.drive.verified ? (
+            <p className="readiness-note">Drive 未連接或未通過驗證時，學生無法保存錄音。請先完成連接再開放學生登入。</p>
+          ) : null}
         </div>
+      </div>
+
+      <div className="admin-card">
+        <div className="card-heading">
+          <h2>Google Drive 錄音庫</h2>
+          {data.drive.connected && data.drive.email ? <small>{data.drive.email}</small> : null}
+        </div>
+        {data.drive.connected ? (
+          <>
+            {!data.drive.verified ? (
+              <div className="error-banner">Drive 授權尚未通過即時驗證，學生錄音將無法保存。</div>
+            ) : null}
+            {data.drive.lastError ? <div className="error-banner">{data.drive.lastError}</div> : null}
+            {driveMessage ? <div className="success-banner">{driveMessage}</div> : null}
+            <div className="stage-panel-row">
+              <button className="button" type="button" disabled={testingDrive} onClick={testDrive}>
+                {testingDrive ? <LoaderCircle className="spin" size={16} /> : <RefreshCw size={16} />}
+                即時測試 Drive
+              </button>
+              {data.drive.rootFolderId ? (
+                <a
+                  className="button secondary"
+                  href={`https://drive.google.com/drive/folders/${data.drive.rootFolderId}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <Link2 size={16} />
+                  開啟研究資料夾
+                </a>
+              ) : null}
+              {!data.drive.verified ? (
+                <a className="button secondary" href="/api/admin/google/connect">
+                  <Link2 size={16} />
+                  重新連接
+                </a>
+              ) : null}
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="muted" style={{ lineHeight: 1.6 }}>
+              連接管理員 Google 帳號後，系統會建立私人研究資料夾並保存學生錄音。
+            </p>
+            <a className="button" href="/api/admin/google/connect">
+              <Link2 size={16} />
+              連接 Google Drive
+            </a>
+          </>
+        )}
       </div>
     </div>
   );
@@ -1234,7 +1281,11 @@ function ResearchTab({
   initialSessions,
   action,
   error,
+  view,
+  setView,
 }: {
+  view: ResearchView;
+  setView: (view: ResearchView) => void;
   data: Overview;
   initialSessions: AdminSessionListPage;
   action: (
@@ -1304,29 +1355,43 @@ function ResearchTab({
   return (
     <div className="section-stack">
       {notice ? <div className="success-banner">{notice}</div> : null}
-      <div className="admin-card">
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 14,
-            alignItems: "center",
-          }}
-        >
-          <div>
-            <h2 style={{ marginBottom: 6 }}>研究資料</h2>
-            <p style={{ margin: 0, color: "var(--ink-soft)" }}>
-              匯出匿名工作階段、訊息、概念圖、AI run 與媒體 manifest。
-            </p>
-          </div>
-          <a className="button" href="/api/admin/export">
-            <Download size={16} />
-            匯出 JSON
-          </a>
+      <div className="research-toolbar">
+        <div className="segmented-tabs" role="tablist" aria-label="研究資料分頁">
+          {(
+            [
+              { id: "sessions", label: "工作階段", badge: 0 },
+              { id: "report", label: "前後測比較", badge: 0 },
+              { id: "recordings", label: "錄音分析", badge: data.attention.recordingIssues },
+              { id: "retention", label: "保存期限", badge: data.attention.retentionExpired },
+            ] as const
+          ).map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              aria-selected={view === item.id}
+              className={view === item.id ? "active" : ""}
+              onClick={() => setView(item.id)}
+            >
+              {item.label}
+              {item.badge ? (
+                <span className={`tab-badge ${item.id === "recordings" ? "ai" : ""}`}>{item.badge}</span>
+              ) : null}
+            </button>
+          ))}
         </div>
+        <a className="button secondary" href="/api/admin/export">
+          <Download size={16} />
+          匯出完整 JSON
+        </a>
       </div>
-      <PrePostReportPanel data={data} />
-      <RecordingIssuesPanel />
+      {view === "report" ? <PrePostReportPanel data={data} /> : null}
+      {view === "recordings" ? <RecordingIssuesPanel /> : null}
+      {view === "retention" ? (
+        <RetentionPanel onDeleted={() => void loadSessions(sessionPage.pagination.page || 1)} />
+      ) : null}
+      {view === "sessions" ? (
+        <>
       <form className="session-filter-bar" onSubmit={searchSessions}>
         <label className="field">
           <span>搜尋 Session</span>
@@ -1480,9 +1545,8 @@ function ResearchTab({
           </button>
         </div>
       </div>
-      <RetentionPanel
-        onDeleted={() => void loadSessions(sessionPage.pagination.page || 1)}
-      />
+        </>
+      ) : null}
       {deleting ? (
         <DeleteParticipantDialog
           session={deleting}
@@ -1588,6 +1652,12 @@ export function AdminDashboard({
   const router = useRouter();
   const [data, setData] = useState(initialData);
   const [tab, setTab] = useState<Tab>("overview");
+  const [researchView, setResearchView] = useState<ResearchView>("sessions");
+
+  function goTo(next: Tab, view?: ResearchView) {
+    setTab(next);
+    if (view) setResearchView(view);
+  }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [codes, setCodes] = useState<Array<{ code: string; label: string }>>([]);
@@ -1675,9 +1745,12 @@ export function AdminDashboard({
   return (
     <main className="admin-shell">
       <aside className="admin-nav">
-        <div className="rail-brand">
-          <span className="brand-mark">A3</span>
-          <strong>Admin</strong>
+        <div className="rail-brand admin-brand">
+          <span className="brand-mark" aria-hidden="true">A3</span>
+          <div>
+            <strong>Speaking Lab</strong>
+            <small>研究管理後台</small>
+          </div>
         </div>
         <div className="admin-nav-list">
           {nav.map((item) => (
@@ -1719,7 +1792,7 @@ export function AdminDashboard({
             <LoaderCircle className="spin" size={16} /> 正在處理管理操作…
           </div>
         ) : null}
-        {tab === "overview" ? <OverviewTab data={data} action={action} /> : null}
+        {tab === "overview" ? <OverviewTab data={data} action={action} goTo={goTo} /> : null}
         {tab === "providers" ? (
           <ProvidersTab data={data} action={action} />
         ) : null}
@@ -1737,6 +1810,8 @@ export function AdminDashboard({
             initialSessions={initialSessions}
             action={action}
             error={error}
+            view={researchView}
+            setView={setResearchView}
           />
         ) : null}
       </section>

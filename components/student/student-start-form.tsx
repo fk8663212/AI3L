@@ -44,14 +44,18 @@ export function StudentStartForm() {
           onChange={(event) => setCode(event.target.value)}
           placeholder="AI3L-XXXX-XXXX"
           autoComplete="one-time-code"
+          aria-describedby="student-code-hint"
           required
         />
+        <small id="student-code-hint" className="field-hint">
+          代碼不分大小寫，連字號要一起輸入。
+        </small>
       </div>
       {error ? <div className="error-banner">{error}</div> : null}
       <button className="button full" type="submit" disabled={busy}>
         {busy ? <LoaderCircle size={18} className="spin" /> : null}
-        進入學習工作區
-        {!busy ? <ArrowRight size={18} /> : null}
+        進入學習
+        {!busy ? <ArrowRight size={18} aria-hidden="true" /> : null}
       </button>
     </form>
   );

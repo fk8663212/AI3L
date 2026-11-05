@@ -38,10 +38,14 @@ function positionedNodes(map: ConceptMap): PositionedNode[] {
       const ringStart = ring * 8;
       const itemsInRing = Math.min(8, surrounding.length - ringStart);
       const positionInRing = index - ringStart;
+      // With an even count, start half a step off the vertical so nodes sit
+      // on the diagonals instead of directly beside the centre node, where
+      // they overlapped it on narrower screens.
+      const offset = itemsInRing % 2 === 0 ? Math.PI / itemsInRing : 0;
       const angle =
-        -Math.PI / 2 + (positionInRing / itemsInRing) * Math.PI * 2;
-      const radiusX = Math.min(44, 29 + ring * 12);
-      const radiusY = Math.min(43, 27 + ring * 12);
+        -Math.PI / 2 + offset + (positionInRing / itemsInRing) * Math.PI * 2;
+      const radiusX = Math.min(40, 36 + ring * 4);
+      const radiusY = Math.min(42, 36 + ring * 6);
       return {
         ...node,
         x: 50 + Math.cos(angle) * radiusX,

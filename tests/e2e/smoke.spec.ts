@@ -4,10 +4,10 @@ test("student entry keeps the research flow focused", async ({ page }, testInfo)
   await page.goto("/");
   await expect(page).toHaveTitle(/AI3L Speaking Lab/);
   await expect(
-    page.getByRole("heading", { name: "先看見想法，再說出英語。" }),
+    page.getByRole("heading", { name: "先畫出想法，再用英語說出來。" }),
   ).toBeVisible();
   await expect(page.getByLabel("學生代碼")).toBeVisible();
-  await expect(page.getByRole("button", { name: "進入學習工作區" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "進入學習" })).toBeVisible();
   await expect(page.getByText("手繪情境")).toBeVisible();
   await expect(page.getByText("獨立口說")).toBeVisible();
 

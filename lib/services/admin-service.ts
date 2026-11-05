@@ -20,6 +20,7 @@ import {
   taskDeletionAllowed,
   taskDeletionConfirmation,
 } from "@/lib/domain/task-deletion";
+import { STAGE_IDS } from "@/lib/domain/stages";
 import {
   normalizeStageOverrideReason,
   overrideRedoesStages,
@@ -32,6 +33,8 @@ import {
   encryptSecret,
 } from "@/lib/security/crypto";
 import { ApiError } from "@/lib/security/request";
+import { listRecordingAnalysisIssues } from "@/lib/services/recording-service";
+import { listRetentionExpiredSessions } from "@/lib/services/participant-data-service";
 import {
   googleDriveStatus,
   testGoogleDriveConnection,
@@ -102,6 +105,10 @@ export async function adminOverview() {
     taskRows,
     sessionStatsRows,
     driveStatus,
+    stageRows,
+    codeCountRows,
+    recordingIssues,
+    retentionExpired,
   ] = await Promise.all([
     db.query.providerCredentials.findMany({
       orderBy: [asc(providerCredentials.provider)],
@@ -119,7 +126,28 @@ export async function adminOverview() {
       })
       .from(studentSessions),
     googleDriveStatus(),
+    // Where students are right now, for the "who is stuck where" chart.
+    db
+      .select({
+        stage: studentSessions.currentStage,
+        completed: sql<boolean>`${studentSessions.completedAt} is not null`,
+        count: sql<number>`count(*)`,
+      })
+      .from(studentSessions)
+      .groupBy(studentSessions.currentStage, sql`${studentSessions.completedAt} is not null`),
+    db.select({ count: sql<number>`count(*)` }).from(accessCodes),
+    listRecordingAnalysisIssues(),
+    listRetentionExpiredSessions(),
   ]);
+  const stageCounts = Object.fromEntries(STAGE_IDS.map((id) => [id, 0])) as Record<
+    (typeof STAGE_IDS)[number],
+    number
+  >;
+  let completedCount = 0;
+  for (const row of stageRows) {
+    if (row.completed) completedCount += Number(row.count);
+    else stageCounts[row.stage] += Number(row.count);
+  }
 
   return {
     providers: credentialRows.map((row) => ({
@@ -145,6 +173,12 @@ export async function adminOverview() {
       completed: Number(sessionStatsRows[0]?.completed ?? 0),
     },
     drive: driveStatus,
+    progress: { stageCounts, completed: completedCount },
+    accessCodeCount: Number(codeCountRows[0]?.count ?? 0),
+    attention: {
+      recordingIssues: recordingIssues.length,
+      retentionExpired: retentionExpired.length,
+    },
     taskDefaults: normalizeTaskConfig(DEFAULT_TASK_CONFIG),
   };
 }
