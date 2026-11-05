@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import {
@@ -31,7 +30,6 @@ import { promptAuditCatalog } from "@/lib/ai/prompt-audit";
 import {
   decryptSecret,
   encryptSecret,
-  hashAccessCode,
 } from "@/lib/security/crypto";
 import { ApiError } from "@/lib/security/request";
 import {
@@ -541,36 +539,34 @@ export async function publishTask(taskId: string): Promise<void> {
   });
 }
 
-function newAccessCode(): string {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  const bytes = randomBytes(8);
-  const chars = Array.from(bytes, (byte) => alphabet[byte % alphabet.length]);
-  return `AI3L-${chars.slice(0, 4).join("")}-${chars.slice(4).join("")}`;
+/**
+ * Ends a published task: nobody can sign in with its codes or keep working
+ * in its sessions. Data is untouched and the task can be restored.
+ */
+export async function archiveTask(taskId: string) {
+  const db = getDb();
+  const updated = await db
+    .update(tasks)
+    .set({ status: "archived", archivedAt: new Date(), updatedAt: new Date() })
+    .where(and(eq(tasks.id, taskId), eq(tasks.status, "published")))
+    .returning({ id: tasks.id });
+  if (!updated[0]) {
+    throw new ApiError(409, "TASK_NOT_PUBLISHED", "只能封存已發布的任務。");
+  }
+  await audit("task.archived", "task", taskId, {});
 }
 
-export async function generateAccessCodes(
-  taskId: string,
-  count: number,
-): Promise<Array<{ code: string; label: string }>> {
+export async function restoreTask(taskId: string) {
   const db = getDb();
-  const task = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) });
-  if (!task || task.status !== "published") {
-    throw new ApiError(409, "TASK_NOT_PUBLISHED", "只能為已發布任務建立代碼。");
+  const updated = await db
+    .update(tasks)
+    .set({ status: "published", archivedAt: null, updatedAt: new Date() })
+    .where(and(eq(tasks.id, taskId), eq(tasks.status, "archived")))
+    .returning({ id: tasks.id });
+  if (!updated[0]) {
+    throw new ApiError(409, "TASK_NOT_ARCHIVED", "只能恢復已封存的任務。");
   }
-
-  const output: Array<{ code: string; label: string }> = [];
-  for (let index = 0; index < count; index += 1) {
-    const code = newAccessCode();
-    const label = `Student ${String(index + 1).padStart(3, "0")}`;
-    await db.insert(accessCodes).values({
-      taskId,
-      codeHash: hashAccessCode(code),
-      label,
-    });
-    output.push({ code, label });
-  }
-  await audit("access_codes.generated", "task", taskId, { count });
-  return output;
+  await audit("task.restored", "task", taskId, {});
 }
 
 export async function overrideSessionStage(input: {

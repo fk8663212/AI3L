@@ -303,6 +303,24 @@ export async function trashDriveFile(fileId: string): Promise<void> {
   });
 }
 
+/**
+ * Permanently deletes a Drive file (not just trash), for participant data
+ * deletion. A file that is already gone counts as deleted.
+ */
+export async function deleteDriveFile(fileId: string): Promise<void> {
+  const { drive } = await authorizedDrive();
+  try {
+    await drive.files.delete({ fileId });
+  } catch (error) {
+    const status =
+      typeof error === "object" && error && "code" in error
+        ? Number((error as { code: unknown }).code)
+        : undefined;
+    if (status === 404) return;
+    throw error;
+  }
+}
+
 export async function getDriveFileStream(fileId: string) {
   const { drive } = await authorizedDrive();
   const metadata = await drive.files.get({

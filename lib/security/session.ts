@@ -70,9 +70,15 @@ export async function getAdminClaims(): Promise<AdminClaims | null> {
 export async function getStudentClaims(): Promise<StudentClaims | null> {
   const store = await cookies();
   const payload = await verify<StudentClaims>(store.get(STUDENT_COOKIE)?.value);
-  return payload?.role === "student" && typeof payload.sessionId === "string"
-    ? payload
-    : null;
+  if (payload?.role !== "student" || typeof payload.sessionId !== "string") {
+    return null;
+  }
+  // A disabled or expired code ends access immediately, not when the 7-day
+  // cookie runs out.
+  const { studentCodeActive } = await import(
+    "@/lib/services/access-code-service"
+  );
+  return (await studentCodeActive(payload.sessionId)) ? payload : null;
 }
 
 export const secureCookieOptions = {
