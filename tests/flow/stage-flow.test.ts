@@ -22,6 +22,22 @@ vi.mock("@/lib/security/session", async (importOriginal) => ({
     claims.current ? { role: "student", ...claims.current } : null,
 }));
 
+// next/server's after() needs a request scope; run the callback and let the
+// tests wait for it, like the platform does after the response is sent.
+const background = vi.hoisted(() => ({ pending: [] as Promise<unknown>[] }));
+vi.mock("next/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/server")>()),
+  after: (task: () => unknown) => {
+    background.pending.push(Promise.resolve().then(task));
+  },
+}));
+
+async function flushBackground() {
+  while (background.pending.length) {
+    await Promise.all(background.pending.splice(0));
+  }
+}
+
 const ai = vi.hoisted(() => ({ generateStructured: vi.fn() }));
 vi.mock("@/lib/ai/provider", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/ai/provider")>()),
@@ -48,7 +64,8 @@ vi.mock("@vercel/blob", async () => {
 import { POST } from "@/app/api/student/actions/route";
 import {
   invalidateImageAnalysisAfterSourceDeletion,
-  precomputeImageAnalysisAfterUpload,
+  precomputeImageAnalysis,
+  runStageAI,
 } from "@/lib/ai/provider-service";
 import { getDb } from "@/lib/db/client";
 import {
@@ -126,6 +143,7 @@ async function act(body: Record<string, unknown>) {
     }),
   );
   const json = await response.json();
+  await flushBackground();
   return {
     status: response.status,
     code: json.error?.code as string | undefined,
@@ -202,11 +220,7 @@ async function advanceTo(target: StageId) {
     [
       "visualization",
       async () => {
-        const image = await addImage("visualization");
-        await precomputeImageAnalysisAfterUpload({
-          sessionId: sessionId(),
-          sourceImageArtifactId: image.id,
-        });
+        await addImage("visualization");
         await act({
           action: "save_labels",
           labels,
@@ -233,10 +247,8 @@ async function advanceTo(target: StageId) {
     ],
     [
       "ai_concept_map",
-      async () => {
-        await act({ action: "run_ai", stage: "ai_concept_map" });
-        await act({ action: "review_concepts", rejectedIds: [] });
-      },
+      // The concept map was built in the background after stage 4.
+      () => act({ action: "review_concepts", rejectedIds: [] }),
     ],
     [
       "sentence_scaffold",
@@ -409,7 +421,7 @@ describe("AI review stages", () => {
     });
 
     const first = await addImage("visualization");
-    const slowRun = precomputeImageAnalysisAfterUpload({
+    const slowRun = precomputeImageAnalysis({
       sessionId: sessionId(),
       sourceImageArtifactId: first.id,
     });
@@ -419,7 +431,7 @@ describe("AI review stages", () => {
 
     await deleteImage(first.id);
     const second = await addImage("visualization");
-    await precomputeImageAnalysisAfterUpload({
+    await precomputeImageAnalysis({
       sessionId: sessionId(),
       sourceImageArtifactId: second.id,
     });
@@ -440,6 +452,59 @@ describe("AI review stages", () => {
     expect(byType("vocabulary_decisions")[0].data.pending).toEqual(
       suggestionIds,
     );
+  });
+});
+
+describe("background AI after a stage is submitted", () => {
+  it("analyses the drawing after stage 2, so stage 4 opens with the result", async () => {
+    await advanceTo("self_concept_map");
+    const analyses = ai.generateStructured.mock.calls.filter(
+      ([input]) => input.schemaName === "image_analysis",
+    );
+    expect(analyses).toHaveLength(1);
+    // Labels are saved before stage 2 is submitted, so the prompt has them.
+    expect(analyses[0][0].prompt).toContain("kite");
+
+    await addImage("self_concept_map");
+    await complete();
+    const stage4 = await view();
+    expect(stage4.session.currentStage).toBe("image_analysis");
+    expect(stage4.aiStatus.image_analysis).toBe("ready");
+    expect(stage4.gate.ok).toBe(false);
+    expect(
+      stage4.artifacts.filter((item) => item.stageId === "image_analysis").map((item) => item.type).sort(),
+    ).toEqual(["annotated_image", "image_analysis", "vocabulary_decisions"]);
+  });
+
+  it("builds the concept map after stage 4, so stage 5 opens with it", async () => {
+    await advanceTo("ai_concept_map");
+    const stage5 = await view();
+    expect(stage5.aiStatus.ai_concept_map).toBe("ready");
+    expect(
+      stage5.artifacts.some((item) => item.type === "generated_concept_map"),
+    ).toBe(true);
+  });
+
+  it("reports a failed background run so stage 4 can offer a retry", async () => {
+    ai.generateStructured.mockImplementation(async () => {
+      throw new Error("provider down");
+    });
+    await advanceTo("image_analysis");
+    expect((await view()).aiStatus.image_analysis).toBe("failed");
+
+    defaultAI();
+    expect((await act({ action: "run_ai", stage: "image_analysis" })).status).toBe(200);
+    expect((await view()).aiStatus.image_analysis).toBe("ready");
+  });
+
+  it("never replaces an analysis the student already has", async () => {
+    await advanceTo("image_analysis");
+    const before = (await view()).artifacts.find((item) => item.type === "image_analysis");
+    await runStageAI(sessionId(), "image_analysis", { trigger: "background" }).catch(
+      (error: { code?: string }) => expect(error.code).toBe("ANALYSIS_EXISTS"),
+    );
+    const after = (await view()).artifacts.find((item) => item.type === "image_analysis");
+    expect(after?.id).toBe(before?.id);
   });
 });
 

@@ -12,7 +12,6 @@ import {
 } from "@/lib/security/request";
 import { getStudentClaims } from "@/lib/security/session";
 import { analyzeRecording } from "@/lib/ai/voice-service";
-import { precomputeImageAnalysisAfterUpload } from "@/lib/ai/provider-service";
 import {
   getSessionView,
   markRecordingAnalysisFailed,
@@ -130,7 +129,7 @@ export async function POST(request: Request) {
       if (!metadata.contentType.startsWith("image/")) {
         throw new ApiError(400, "INVALID_IMAGE", "上傳檔案不是支援的圖片。");
       }
-      const savedImage = await saveUploadedImage({
+      await saveUploadedImage({
         sessionId: claims.sessionId,
         stageId: body.stage,
         storageProvider: "vercel-blob",
@@ -142,14 +141,6 @@ export async function POST(request: Request) {
           stagingPathname: metadata.pathname,
         },
       });
-      if (body.stage === "visualization") {
-        after(() =>
-          precomputeImageAnalysisAfterUpload({
-            sessionId: claims.sessionId,
-            sourceImageArtifactId: savedImage.id,
-          }),
-        );
-      }
     } else {
       if (!isSupportedAudioMimeType(metadata.contentType)) {
         throw new ApiError(400, "INVALID_AUDIO", "上傳檔案不是支援的音訊。");

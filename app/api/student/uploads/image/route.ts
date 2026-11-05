@@ -1,6 +1,6 @@
 import { del, put } from "@vercel/blob";
 import { and, eq, isNull } from "drizzle-orm";
-import { after, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getDb } from "@/lib/db/client";
 import { artifacts, studentSessions } from "@/lib/db/schema";
@@ -10,10 +10,7 @@ import {
   assertSameOrigin,
 } from "@/lib/security/request";
 import { getStudentClaims } from "@/lib/security/session";
-import {
-  invalidateImageAnalysisAfterSourceDeletion,
-  precomputeImageAnalysisAfterUpload,
-} from "@/lib/ai/provider-service";
+import { invalidateImageAnalysisAfterSourceDeletion } from "@/lib/ai/provider-service";
 import {
   getSessionView,
   saveUploadedImage,
@@ -100,7 +97,7 @@ export async function POST(request: Request) {
     );
     uploadedUrl = blob.url;
 
-    const savedImage = await saveUploadedImage({
+    await saveUploadedImage({
       sessionId: claims.sessionId,
       stageId: stage,
       storageProvider: "vercel-blob",
@@ -113,14 +110,6 @@ export async function POST(request: Request) {
         uploadChannel: "server-fallback",
       },
     });
-    if (stage === "visualization") {
-      after(() =>
-        precomputeImageAnalysisAfterUpload({
-          sessionId: claims.sessionId,
-          sourceImageArtifactId: savedImage.id,
-        }),
-      );
-    }
 
     return NextResponse.json({
       ok: true,

@@ -1,7 +1,5 @@
-import { createHash } from "node:crypto";
-import { del, get, put } from "@vercel/blob";
+import { del, get } from "@vercel/blob";
 import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
-import sharp from "sharp";
 import { getDb } from "@/lib/db/client";
 import {
   aiRuns,
@@ -14,7 +12,6 @@ import {
   generatedConceptMapSchema,
   imageAnalysisGenerationSchema,
   sentenceScaffoldSchema,
-  type ImageAnnotation,
 } from "@/lib/ai/schemas";
 import type { ZodType } from "zod";
 import {
@@ -28,6 +25,7 @@ import {
   sentenceScaffoldPrompt,
 } from "@/lib/ai/prompts";
 import { normalizeTaskConfig } from "@/lib/domain/default-task";
+import type { StageId } from "@/lib/domain/stages";
 import { decryptSecret, hashForLog } from "@/lib/security/crypto";
 import { ApiError } from "@/lib/security/request";
 import {
@@ -117,119 +115,60 @@ async function privateBlobBytes(locator: string): Promise<BinaryInput> {
   };
 }
 
-function escapeXml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&apos;");
-}
+/**
+ * Stages in which a background image analysis may run and be saved: from the
+ * moment the drawing stage is submitted until the student reviews the result.
+ */
+const BACKGROUND_ANALYSIS_STAGES: StageId[] = [
+  "visualization",
+  "self_concept_map",
+  "image_analysis",
+];
 
-function annotationColor(category: ImageAnnotation["category"]): string {
-  return (
-    {
-      person: "#b84a3a",
-      object: "#2f6da3",
-      event: "#7d4da3",
-      place: "#2f7d65",
-      feeling: "#bd6f21",
-      quality: "#82621b",
-    } as const
-  )[category];
-}
-
-async function renderAnnotatedDrawing(
-  source: BinaryInput,
-  annotations: ImageAnnotation[],
-): Promise<Uint8Array> {
-  const input = Buffer.from(source.bytes);
-  const metadata = await sharp(input).metadata();
-  const width = metadata.width;
-  const height = metadata.height;
-  if (!width || !height) {
-    throw new Error("Drawing dimensions could not be determined.");
+/** Refuses a background result once the student already has one. */
+async function assertNoCurrentOutput(
+  tx: DbTransaction,
+  sessionId: string,
+  stage: "image_analysis" | "ai_concept_map",
+) {
+  const rows = await tx
+    .select({ id: artifacts.id })
+    .from(artifacts)
+    .where(
+      and(
+        eq(artifacts.sessionId, sessionId),
+        eq(artifacts.stageId, stage),
+        eq(
+          artifacts.type,
+          stage === "image_analysis" ? "image_analysis" : "generated_concept_map",
+        ),
+        isNull(artifacts.supersededAt),
+      ),
+    )
+    .limit(1);
+  if (rows[0]) {
+    throw new ApiError(409, "ANALYSIS_EXISTS", "已有 AI 分析結果。");
   }
-
-  const lineWidth = Math.max(3, Math.round(width / 420));
-  const fontSize = Math.max(18, Math.round(width / 48));
-  const padding = Math.max(5, Math.round(fontSize * 0.28));
-  const elements = annotations
-    .map((item) => {
-      const normalizedX = Math.min(999, Math.max(0, item.region.x));
-      const normalizedY = Math.min(999, Math.max(0, item.region.y));
-      const normalizedWidth = Math.min(
-        1000 - normalizedX,
-        Math.max(1, item.region.width),
-      );
-      const normalizedHeight = Math.min(
-        1000 - normalizedY,
-        Math.max(1, item.region.height),
-      );
-      const x = (normalizedX / 1000) * width;
-      const y = (normalizedY / 1000) * height;
-      const boxWidth = (normalizedWidth / 1000) * width;
-      const boxHeight = (normalizedHeight / 1000) * height;
-      const label = escapeXml(item.labelEn);
-      const labelWidth = Math.min(
-        width,
-        Math.max(fontSize * 3, label.length * fontSize * 0.64 + padding * 2),
-      );
-      const labelX = Math.min(width - labelWidth, Math.max(0, x));
-      const labelHeight = fontSize + padding * 2;
-      const labelY = Math.max(0, y - labelHeight);
-      const color = annotationColor(item.category);
-      return `
-        <rect x="${x}" y="${y}" width="${boxWidth}" height="${boxHeight}"
-          rx="${lineWidth * 1.5}" fill="none" stroke="#ffffff"
-          stroke-width="${lineWidth * 2.5}" />
-        <rect x="${x}" y="${y}" width="${boxWidth}" height="${boxHeight}"
-          rx="${lineWidth * 1.5}" fill="none" stroke="${color}"
-          stroke-width="${lineWidth}" />
-        <rect x="${labelX}" y="${labelY}" width="${labelWidth}" height="${labelHeight}"
-          rx="${padding}" fill="${color}" />
-        <text x="${labelX + padding}" y="${labelY + padding + fontSize * 0.82}"
-          fill="#ffffff" font-family="Arial, sans-serif" font-size="${fontSize}"
-          font-weight="700">${label}</text>
-      `;
-    })
-    .join("\n");
-  const overlay = `
-    <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"
-      xmlns="http://www.w3.org/2000/svg">
-      ${elements}
-    </svg>
-  `;
-
-  return new Uint8Array(
-    await sharp(input)
-      .composite([{ input: Buffer.from(overlay) }])
-      .webp({ quality: 90 })
-      .toBuffer(),
-  );
 }
 
 export async function runStageAI(
   sessionId: string,
   stage: "image_analysis" | "ai_concept_map" | "sentence_scaffold",
   options?: {
-    trigger?: "student_action" | "visualization_upload";
+    trigger?: "student_action" | "background";
     sourceImageArtifactId?: string;
   },
 ) {
   const db = getDb();
   const context = await taskAIContext(sessionId);
   const promptConfig = normalizeTaskConfig(context.task.config).promptConfig;
-  const isVisualizationUpload =
-    stage === "image_analysis" &&
-    options?.trigger === "visualization_upload";
-  const allowedCurrentStage: "visualization" | undefined = isVisualizationUpload
-    ? "visualization"
-    : undefined;
-  if (
-    context.session.currentStage !== stage &&
-    context.session.currentStage !== allowedCurrentStage
-  ) {
+  const isBackground =
+    stage !== "sentence_scaffold" && options?.trigger === "background";
+  const allowedCurrentStages: StageId[] =
+    isBackground && stage === "image_analysis"
+      ? BACKGROUND_ANALYSIS_STAGES
+      : [stage];
+  if (!allowedCurrentStages.includes(context.session.currentStage)) {
     throw new ApiError(409, "STAGE_LOCKED", "此 AI 階段目前不可操作。");
   }
 
@@ -373,26 +312,10 @@ export async function runStageAI(
         data: result.value as Record<string, unknown>,
       },
     ];
-    let annotatedBlobUrl: string | undefined;
     if (stage === "image_analysis" && sourceImageArtifactId) {
       const annotated = imageAnalysisGenerationSchema.parse(result.value);
-      if (!binary) throw new Error("Drawing bytes are unavailable.");
-      const annotatedBytes = await renderAnnotatedDrawing(
-        binary,
-        annotated.suggestions,
-      );
-      const stored = await put(
-        `student/${sessionId}/image_analysis/annotated-drawing.webp`,
-        Buffer.from(annotatedBytes),
-        {
-          access: "private",
-          contentType: "image/webp",
-          // A unique URL per run: invalidating an older analysis deletes its
-          // blob by URL, which must never hit a newer run's annotated image.
-          addRandomSuffix: true,
-        },
-      );
-      annotatedBlobUrl = stored.url;
+      // The labels are drawn over the original drawing in the browser, so the
+      // annotated version is data only: no server-side image rendering.
       writes.push(
         {
           sessionId,
@@ -401,15 +324,7 @@ export async function runStageAI(
           data: {
             sourceImageArtifactId,
             annotations: annotated.suggestions,
-            pathname: stored.pathname,
           },
-          storageProvider: "vercel-blob",
-          storageLocator: stored.url,
-          mimeType: "image/webp",
-          sizeBytes: annotatedBytes.byteLength,
-          sha256: createHash("sha256")
-            .update(annotatedBytes)
-            .digest("base64url"),
         },
         {
           sessionId,
@@ -439,32 +354,26 @@ export async function runStageAI(
       });
     }
 
-    try {
-      await replaceArtifactsAtomically(writes, {
-        allowWhenCurrentStage: allowedCurrentStage,
-        assertCurrent: sourceImageArtifactId
-          ? (tx) => assertSourceImageCurrent(tx, sessionId, sourceImageArtifactId!)
-          : undefined,
-      });
-    } catch (error) {
-      if (annotatedBlobUrl) {
-        try {
-          await del(annotatedBlobUrl);
-        } catch {
-          // Unreferenced blob; harmless if cleanup fails.
+    await replaceArtifactsAtomically(writes, {
+      allowWhenCurrentStages: allowedCurrentStages,
+      assertCurrent: async (tx) => {
+        if (sourceImageArtifactId) {
+          await assertSourceImageCurrent(tx, sessionId, sourceImageArtifactId);
         }
-      }
-      throw error;
-    }
-    if (!isVisualizationUpload) {
-      await saveMessage({
-        sessionId,
-        stageId: stage,
-        role: "assistant",
-        kind: stage,
-        content: result.value as Record<string, unknown>,
-      });
-    }
+        if (isBackground) {
+          await assertNoCurrentOutput(tx, sessionId, stage);
+        }
+      },
+    });
+    // A background result is saved under its own stage, so the student only
+    // sees the message once they reach that stage.
+    await saveMessage({
+      sessionId,
+      stageId: stage,
+      role: "assistant",
+      kind: stage,
+      content: result.value as Record<string, unknown>,
+    });
     await db
       .update(aiRuns)
       .set({
@@ -592,21 +501,46 @@ async function invalidateImageAnalysisArtifacts(sessionId: string) {
   }
 }
 
-export async function precomputeImageAnalysisAfterUpload(input: {
+/**
+ * Analyses the drawing in the background once the drawing stage is submitted,
+ * so stage 4 only has to show the result. Never throws: on failure stage 4
+ * offers a retry.
+ */
+export async function precomputeImageAnalysis(input: {
   sessionId: string;
-  sourceImageArtifactId: string;
+  sourceImageArtifactId?: string;
 }) {
   try {
     await invalidateImageAnalysisArtifacts(input.sessionId);
     await runStageAI(input.sessionId, "image_analysis", {
-      trigger: "visualization_upload",
+      trigger: "background",
       sourceImageArtifactId: input.sourceImageArtifactId,
     });
     return true;
   } catch (error) {
-    console.error("Image-analysis precompute failed; upload was preserved", {
+    console.error("Background image analysis failed", {
       sessionId: input.sessionId,
       sourceImageArtifactId: input.sourceImageArtifactId,
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+    return false;
+  }
+}
+
+/**
+ * Builds the AI concept map in the background once the vocabulary review
+ * (stage 4) is submitted: its inputs, the stage 3 drawing and the accepted
+ * words, are final then. Never throws: on failure stage 5 offers a retry.
+ */
+export async function precomputeConceptMap(input: { sessionId: string }) {
+  try {
+    await runStageAI(input.sessionId, "ai_concept_map", {
+      trigger: "background",
+    });
+    return true;
+  } catch (error) {
+    console.error("Background concept map failed", {
+      sessionId: input.sessionId,
       error: error instanceof Error ? error.message : "Unknown error",
     });
     return false;
