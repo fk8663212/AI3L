@@ -33,6 +33,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import type { adminOverview } from "@/lib/services/admin-service";
 import type { AdminSessionListPage } from "@/lib/services/admin-session-service";
 import { AccessCodesTab } from "@/components/admin/access-codes-tab";
+import { ModelManager } from "@/components/admin/model-manager";
 import {
   AuditLogTab,
   DeleteParticipantDialog,
@@ -426,6 +427,10 @@ function OverviewTab({
   );
 }
 
+function firstEnabledModel(data: Overview, provider: string): string | undefined {
+  return data.models.find((model) => model.provider === provider && model.enabled)?.modelId;
+}
+
 function ProvidersTab({
   data,
   action,
@@ -443,48 +448,18 @@ function ProvidersTab({
       <div className="split-grid">
         <ProviderCard
           provider="google"
-          modelId="gemini-3.6-flash"
+          modelId={firstEnabledModel(data, "google") ?? "gemini-3.6-flash"}
           existing={data.providers.find((item) => item.provider === "google")}
           action={action}
         />
         <ProviderCard
           provider="openai"
-          modelId="gpt-5.6-terra"
+          modelId={firstEnabledModel(data, "openai") ?? "gpt-5.6-terra"}
           existing={data.providers.find((item) => item.provider === "openai")}
           action={action}
         />
       </div>
-      <div className="admin-card">
-        <h2>可用模型</h2>
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>供應商</th>
-                <th>顯示名稱</th>
-                <th>Model ID</th>
-                <th>能力</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.models.map((model) => (
-                <tr key={model.id}>
-                  <td>{model.provider}</td>
-                  <td>{model.displayName}</td>
-                  <td>
-                    <code>{model.modelId}</code>
-                  </td>
-                  <td>
-                    {model.capabilities.image ? "圖片 " : ""}
-                    {model.capabilities.audio ? "音訊 " : ""}
-                    結構化輸出
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <ModelManager data={data} action={action} />
     </div>
   );
 }
@@ -665,7 +640,11 @@ function TasksTab({
                 onChange={(event) => setModelId(event.target.value)}
               >
                 {data.models
-                  .filter((model) => model.provider === provider)
+                  .filter(
+                    (model) =>
+                      model.provider === provider &&
+                      (model.enabled || model.modelId === modelId),
+                  )
                   .map((model) => (
                     <option value={model.modelId} key={model.id}>
                       {model.displayName}

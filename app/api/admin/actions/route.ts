@@ -21,6 +21,7 @@ import {
 import { getAdminClaims } from "@/lib/security/session";
 import { STAGE_IDS } from "@/lib/domain/stages";
 import { MAX_CODE_BATCH } from "@/lib/domain/access-codes";
+import { deleteModel, setModelEnabled, testModel } from "@/lib/services/model-service";
 import {
   deleteUnusedAccessCodes,
   disableAllTaskCodes,
@@ -71,6 +72,22 @@ const bodySchema = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal("test_drive"),
+  }),
+  z.object({
+    action: z.literal("set_model_enabled"),
+    provider: providerSchema,
+    modelId: z.string().min(1).max(120),
+    enabled: z.boolean(),
+  }),
+  z.object({
+    action: z.literal("delete_model"),
+    provider: providerSchema,
+    modelId: z.string().min(1).max(120),
+  }),
+  z.object({
+    action: z.literal("test_model"),
+    provider: providerSchema,
+    modelId: z.string().min(1).max(120),
   }),
   z.object({
     action: z.literal("add_model"),
@@ -182,6 +199,15 @@ export async function POST(request: Request) {
         break;
       case "add_model":
         await addCustomModel(body);
+        break;
+      case "set_model_enabled":
+        await setModelEnabled(body);
+        break;
+      case "delete_model":
+        await deleteModel(body);
+        break;
+      case "test_model":
+        data = await testModel(body);
         break;
       case "save_task":
         data = { id: await saveTaskDraft(body) };
