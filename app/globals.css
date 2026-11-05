@@ -4372,3 +4372,72 @@ button {
   color: #3f4a5c;
   background: #eef1f6;
 }
+
+/* ==== Model management ==================================================== */
+
+.model-form {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.8fr) minmax(180px, 1.2fr) minmax(160px, 1fr);
+  gap: 12px 14px;
+  align-items: end;
+}
+
+.model-form .field {
+  margin: 0;
+}
+
+.model-form .field > span {
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.model-capabilities {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  border: 0;
+}
+
+.model-capabilities legend {
+  margin-bottom: 6px;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.model-capabilities label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+}
+
+.model-form-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 10px;
+}
+
+.model-test {
+  margin-top: 6px;
+  max-width: 240px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: normal;
+}
+
+.model-test.ok {
+  color: var(--green);
+}
+
+.model-test.failed {
+  color: var(--danger);
+}
+
+@media (max-width: 760px) {
+  .model-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
