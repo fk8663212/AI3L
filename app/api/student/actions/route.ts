@@ -1,8 +1,19 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { conceptEdgeSchema, conceptNodeSchema } from "@/lib/ai/schemas";
+import {
+  conceptEdgeSchema,
+  conceptMapSchema,
+  conceptNodeSchema,
+  imageAnalysisSchema,
+} from "@/lib/ai/schemas";
 import { runStageAI } from "@/lib/ai/provider-service";
+import {
+  ReviewDecisionError,
+  resolveConceptReview,
+  resolveVocabularyReview,
+} from "@/lib/domain/review-decisions";
 import { STAGE_IDS } from "@/lib/domain/stages";
+import { enforceRateLimit } from "@/lib/security/rate-limit";
 import {
   apiErrorResponse,
   ApiError,
@@ -12,12 +23,33 @@ import { getStudentClaims } from "@/lib/security/session";
 import {
   completeCurrentStage,
   getSessionView,
+  type SessionView,
   recordConsent,
   replaceArtifactData,
   saveMessage,
 } from "@/lib/services/session-service";
 
 export const maxDuration = 60;
+
+const AI_RUN_LIMIT = 12;
+const AI_RUN_WINDOW_MS = 10 * 60 * 1000;
+
+function currentArtifactData(
+  view: SessionView,
+  stageId: SessionView["session"]["currentStage"],
+  types: readonly string[],
+) {
+  return view.artifacts.find(
+    (artifact) => artifact.stageId === stageId && types.includes(artifact.type),
+  )?.data;
+}
+
+function asReviewError(error: unknown): never {
+  if (error instanceof ReviewDecisionError) {
+    throw new ApiError(400, error.code, error.message);
+  }
+  throw error;
+}
 
 const decisionSchema = z.object({
   id: z.string(),
@@ -43,10 +75,13 @@ const bodySchema = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal("review_concepts"),
-    accepted: z.object({
-      nodes: z.array(conceptNodeSchema).max(50),
-      edges: z.array(conceptEdgeSchema).max(100),
-    }),
+    // Kept for client compatibility; the server rebuilds the accepted map.
+    accepted: z
+      .object({
+        nodes: z.array(conceptNodeSchema).max(50),
+        edges: z.array(conceptEdgeSchema).max(100),
+      })
+      .optional(),
     rejectedIds: z.array(z.string()).max(100),
   }),
   z.object({
@@ -98,58 +133,93 @@ export async function POST(request: Request) {
         });
         break;
       case "run_ai":
+        await enforceRateLimit(
+          `student-ai:${claims.sessionId}`,
+          AI_RUN_LIMIT,
+          AI_RUN_WINDOW_MS,
+        );
         await runStageAI(claims.sessionId, body.stage);
         break;
       case "review_vocabulary":
         if (view.session.currentStage !== "image_analysis") {
           throw new ApiError(409, "STAGE_LOCKED", "目前不是詞彙審核階段。");
         }
-        await replaceArtifactData({
-          sessionId: claims.sessionId,
-          stageId: "image_analysis",
-          type: "vocabulary_decisions",
-          data: {
-            pending: [],
-            accepted: body.decisions.filter(
-              (decision) => decision.status !== "rejected",
-            ),
-            rejected: body.decisions.filter(
-              (decision) => decision.status === "rejected",
-            ),
-          },
-        });
-        await saveMessage({
-          sessionId: claims.sessionId,
-          stageId: "image_analysis",
-          role: "student",
-          kind: "vocabulary_decisions",
-          content: { decisions: body.decisions },
-        });
+        {
+          const analysis = imageAnalysisSchema.safeParse(
+            currentArtifactData(view, "image_analysis", ["image_analysis"]),
+          );
+          if (!analysis.success) {
+            throw new ApiError(
+              409,
+              "AI_OUTPUT_REQUIRED",
+              "請先取得 AI 詞彙建議後再審核。",
+            );
+          }
+          let review: ReturnType<typeof resolveVocabularyReview>;
+          try {
+            review = resolveVocabularyReview(
+              analysis.data.suggestions,
+              body.decisions,
+            );
+          } catch (error) {
+            asReviewError(error);
+          }
+          await replaceArtifactData({
+            sessionId: claims.sessionId,
+            stageId: "image_analysis",
+            type: "vocabulary_decisions",
+            data: review,
+          });
+          await saveMessage({
+            sessionId: claims.sessionId,
+            stageId: "image_analysis",
+            role: "student",
+            kind: "vocabulary_decisions",
+            content: { decisions: [...review.accepted, ...review.rejected] },
+          });
+        }
         break;
       case "review_concepts":
         if (view.session.currentStage !== "ai_concept_map") {
           throw new ApiError(409, "STAGE_LOCKED", "目前不是概念審核階段。");
         }
-        await replaceArtifactData({
-          sessionId: claims.sessionId,
-          stageId: "ai_concept_map",
-          type: "concept_decisions",
-          data: {
-            pending: [],
-            accepted: body.accepted,
-            rejectedIds: body.rejectedIds,
-          },
-        });
-        await saveMessage({
-          sessionId: claims.sessionId,
-          stageId: "ai_concept_map",
-          role: "student",
-          kind: "concept_decisions",
-          content: {
-            accepted: body.accepted,
-            rejectedIds: body.rejectedIds,
-          },
-        });
+        {
+          const generated = conceptMapSchema.safeParse(
+            currentArtifactData(view, "ai_concept_map", [
+              "generated_concept_map",
+              "ai_concept_map",
+            ]),
+          );
+          if (!generated.success) {
+            throw new ApiError(
+              409,
+              "AI_OUTPUT_REQUIRED",
+              "請先產生 AI 概念圖建議後再審核。",
+            );
+          }
+          let review: ReturnType<typeof resolveConceptReview>;
+          try {
+            review = resolveConceptReview(generated.data, body.rejectedIds);
+          } catch (error) {
+            asReviewError(error);
+          }
+          await replaceArtifactData({
+            sessionId: claims.sessionId,
+            stageId: "ai_concept_map",
+            type: "concept_decisions",
+            data: review,
+          });
+          await saveMessage({
+            sessionId: claims.sessionId,
+            stageId: "ai_concept_map",
+            role: "student",
+            kind: "concept_decisions",
+            content: {
+              accepted: review.accepted,
+              rejectedIds: review.rejectedIds,
+            },
+          });
+        }
         break;
       case "save_sentences":
         if (view.session.currentStage !== "sentence_scaffold") {

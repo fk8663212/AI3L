@@ -18,7 +18,7 @@ import {
   markRecordingAnalysisFailed,
   saveRecordingAnalysis,
   saveRecordingAudio,
-  saveArtifact,
+  saveUploadedImage,
 } from "@/lib/services/session-service";
 import {
   trashDriveFile,
@@ -98,15 +98,41 @@ export async function POST(request: Request) {
       }
       return NextResponse.json({ ok: true, data: view });
     }
+    // One recording / drawing per stage. Checked here so a duplicate never
+    // reaches Drive; saveRecordingAudio/saveUploadedImage re-check atomically.
+    if (
+      view.artifacts.some(
+        (artifact) =>
+          artifact.stageId === body.stage && artifact.type === body.kind,
+      )
+    ) {
+      try {
+        await del(body.url, {
+          abortSignal: AbortSignal.timeout(BLOB_CLEANUP_TIMEOUT_MS),
+        });
+      } catch {
+        // Staging cleanup is best-effort; the daily cron removes leftovers.
+      }
+      throw body.kind === "audio"
+        ? new ApiError(
+            409,
+            "RECORDING_EXISTS",
+            "此階段已有錄音；每個階段只保存一段錄音。",
+          )
+        : new ApiError(
+            409,
+            "IMAGE_EXISTS",
+            "此階段已有上傳圖片；請先刪除原圖片再重新上傳。",
+          );
+    }
 
     if (body.kind === "image") {
       if (!metadata.contentType.startsWith("image/")) {
         throw new ApiError(400, "INVALID_IMAGE", "上傳檔案不是支援的圖片。");
       }
-      const savedImage = await saveArtifact({
+      const savedImage = await saveUploadedImage({
         sessionId: claims.sessionId,
         stageId: body.stage,
-        type: "image",
         storageProvider: "vercel-blob",
         storageLocator: body.url,
         mimeType: metadata.contentType,

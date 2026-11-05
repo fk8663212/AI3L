@@ -1,8 +1,9 @@
 import { randomBytes } from "node:crypto";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import {
   accessCodes,
+  artifacts,
   auditLogs,
   providerCredentials,
   providerModels,
@@ -20,7 +21,10 @@ import {
   taskDeletionAllowed,
   taskDeletionConfirmation,
 } from "@/lib/domain/task-deletion";
-import { normalizeStageOverrideReason } from "@/lib/domain/stage-override";
+import {
+  normalizeStageOverrideReason,
+  overrideRedoesStages,
+} from "@/lib/domain/stage-override";
 import type { AIProviderName } from "@/lib/ai/provider";
 import { testProviderConnection } from "@/lib/ai/provider";
 import { promptAuditCatalog } from "@/lib/ai/prompt-audit";
@@ -612,6 +616,29 @@ export async function overrideSessionStage(input: {
       );
     }
 
+    // Sending a student to the current or an earlier stage means "redo from
+    // here": supersede that stage's work and everything built on it, so old
+    // evidence cannot satisfy the gate and uploads/recorders open again.
+    // Rows are kept (supersededAt) and still appear in research exports.
+    const redoStages = overrideRedoesStages({
+      from: session.currentStage,
+      to: input.stageId,
+      completed: session.completedAt !== null,
+    });
+    const superseded = redoStages.length
+      ? await tx
+          .update(artifacts)
+          .set({ supersededAt: now, updatedAt: now })
+          .where(
+            and(
+              eq(artifacts.sessionId, input.sessionId),
+              inArray(artifacts.stageId, redoStages),
+              isNull(artifacts.supersededAt),
+            ),
+          )
+          .returning({ id: artifacts.id })
+      : [];
+
     await tx
       .update(stageAttempts)
       .set({
@@ -656,6 +683,8 @@ export async function overrideSessionStage(input: {
         previousStateVersion: session.stateVersion,
         stateVersion: session.stateVersion + 1,
         attempt,
+        redoStages,
+        supersededArtifactCount: superseded.length,
       },
     });
     return {
@@ -664,6 +693,7 @@ export async function overrideSessionStage(input: {
       to: input.stageId,
       stateVersion: session.stateVersion + 1,
       attempt,
+      supersededArtifactCount: superseded.length,
     };
   });
 }

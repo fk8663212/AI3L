@@ -1,8 +1,13 @@
-import { eq, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { rateLimits } from "@/lib/db/schema";
 import { ApiError } from "@/lib/security/request";
 
+/**
+ * Fixed-window rate limit. A single upsert both resets an expired window and
+ * increments the counter, so concurrent requests cannot all read the same
+ * stale count and slip past the limit.
+ */
 export async function enforceRateLimit(
   key: string,
   limit: number,
@@ -10,31 +15,26 @@ export async function enforceRateLimit(
 ): Promise<void> {
   const db = getDb();
   const now = new Date();
-  const current = await db.query.rateLimits.findFirst({
-    where: eq(rateLimits.key, key),
-  });
+  const windowStart = new Date(now.getTime() - windowMs);
+  const expired = sql`${rateLimits.windowStartedAt} < ${windowStart.toISOString()}::timestamptz`;
+  const rows = await db
+    .insert(rateLimits)
+    .values({ key, count: 1, windowStartedAt: now, updatedAt: now })
+    .onConflictDoUpdate({
+      target: rateLimits.key,
+      set: {
+        count: sql`case when ${expired} then 1 else ${rateLimits.count} + 1 end`,
+        windowStartedAt: sql`case when ${expired} then ${now.toISOString()}::timestamptz else ${rateLimits.windowStartedAt} end`,
+        updatedAt: now,
+      },
+    })
+    .returning({ count: rateLimits.count });
 
-  if (!current || now.getTime() - current.windowStartedAt.getTime() > windowMs) {
-    await db
-      .insert(rateLimits)
-      .values({ key, count: 1, windowStartedAt: now, updatedAt: now })
-      .onConflictDoUpdate({
-        target: rateLimits.key,
-        set: { count: 1, windowStartedAt: now, updatedAt: now },
-      });
-    return;
-  }
-
-  if (current.count >= limit) {
+  if ((rows[0]?.count ?? 0) > limit) {
     throw new ApiError(
       429,
       "RATE_LIMITED",
       "嘗試次數過多，請稍後再試。",
     );
   }
-
-  await db
-    .update(rateLimits)
-    .set({ count: sql`${rateLimits.count} + 1`, updatedAt: now })
-    .where(eq(rateLimits.key, key));
 }

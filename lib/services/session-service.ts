@@ -204,15 +204,20 @@ export async function startStudentSession(codeHash: string) {
 
 export async function recordConsent(sessionId: string): Promise<void> {
   const db = getDb();
-  const session = await db.query.studentSessions.findFirst({
-    where: eq(studentSessions.id, sessionId),
-  });
-  if (!session) throw new ApiError(404, "SESSION_NOT_FOUND", "找不到工作階段。");
-
-  await db
+  const now = new Date();
+  // Keep the first consent timestamp; a repeated consent only touches lastSeenAt.
+  const updated = await db
     .update(studentSessions)
-    .set({ consentedAt: new Date(), consentVersion: "1.0", lastSeenAt: new Date() })
-    .where(eq(studentSessions.id, sessionId));
+    .set({
+      consentedAt: sql`coalesce(${studentSessions.consentedAt}, ${now.toISOString()}::timestamptz)`,
+      consentVersion: sql`coalesce(${studentSessions.consentVersion}, '1.0')`,
+      lastSeenAt: now,
+    })
+    .where(eq(studentSessions.id, sessionId))
+    .returning({ id: studentSessions.id });
+  if (!updated[0]) {
+    throw new ApiError(404, "SESSION_NOT_FOUND", "找不到工作階段。");
+  }
 }
 
 export async function getSessionUploadAuthorization(sessionId: string) {
@@ -265,8 +270,14 @@ export async function getSessionView(
   const currentIndex = STAGES.findIndex(
     (stage) => stage.id === found.session.currentStage,
   );
-  const visibleStageIds = new Set(
-    STAGES.slice(0, currentIndex + 1).map((stage) => stage.id),
+  const concealPriorStages =
+    found.session.currentStage === "posttest" && !found.session.completedAt;
+  // During the posttest, prior hints are withheld from the response itself,
+  // not just hidden in the UI, so they cannot be read from the network tab.
+  const visibleStageIds = new Set<StageId>(
+    concealPriorStages
+      ? [found.session.currentStage]
+      : STAGES.slice(0, currentIndex + 1).map((stage) => stage.id),
   );
   const evidence = evidenceForStage(
     artifactRows,
@@ -343,32 +354,45 @@ export async function getSessionView(
         createdAt: artifact.createdAt.toISOString(),
       })),
     gate: evaluateStageGate(found.session.currentStage, evidence),
-    concealPriorStages:
-      found.session.currentStage === "posttest" && !found.session.completedAt,
+    concealPriorStages,
   };
 }
 
-export async function saveArtifact(
-  input: {
-    sessionId: string;
-    stageId: StageId;
-    type: string;
-    status?: string;
-    data?: Record<string, unknown>;
-    storageProvider?: string;
-    storageLocator?: string;
-    mimeType?: string;
-    sizeBytes?: number;
-    sha256?: string;
-  },
-  options?: {
-    allowWhenCurrentStage?: StageId;
-  },
+type ArtifactWriteInput = {
+  sessionId: string;
+  stageId: StageId;
+  type: string;
+  status?: string;
+  data?: Record<string, unknown>;
+  storageProvider?: string;
+  storageLocator?: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  sha256?: string;
+};
+
+type ArtifactWriteOptions = {
+  allowWhenCurrentStage?: StageId;
+};
+
+type DbTransaction = Parameters<
+  Parameters<ReturnType<typeof getDb>["transaction"]>[0]
+>[0];
+
+async function assertArtifactWritable(
+  tx: DbTransaction,
+  input: ArtifactWriteInput,
+  options?: ArtifactWriteOptions,
 ) {
-  const db = getDb();
-  const session = await db.query.studentSessions.findFirst({
-    where: eq(studentSessions.id, input.sessionId),
-  });
+  // Row lock: concurrent writers for one session serialize here, so a stage
+  // change cannot slip between the check and the write.
+  const rows = await tx
+    .select({ currentStage: studentSessions.currentStage })
+    .from(studentSessions)
+    .where(eq(studentSessions.id, input.sessionId))
+    .limit(1)
+    .for("update");
+  const session = rows[0];
   if (!session) throw new ApiError(404, "SESSION_NOT_FOUND", "找不到工作階段。");
   if (
     session.currentStage !== input.stageId &&
@@ -376,9 +400,50 @@ export async function saveArtifact(
   ) {
     throw new ApiError(409, "STAGE_LOCKED", "此階段目前不可操作。");
   }
+}
 
+const SINGLE_UPLOAD_ERRORS = {
+  audio: {
+    code: "RECORDING_EXISTS",
+    message: "此階段已有錄音；每個階段只保存一段錄音。",
+  },
+  image: {
+    code: "IMAGE_EXISTS",
+    message: "此階段已有上傳圖片；請先刪除原圖片再重新上傳。",
+  },
+} as const;
+
+/**
+ * Each stage keeps exactly one student recording or drawing. Runs after
+ * assertArtifactWritable, whose session-row lock makes the check race-free.
+ */
+async function assertNoActiveArtifact(
+  tx: DbTransaction,
+  sessionId: string,
+  stageId: StageId,
+  type: keyof typeof SINGLE_UPLOAD_ERRORS,
+) {
+  const existing = await tx
+    .select({ id: artifacts.id })
+    .from(artifacts)
+    .where(
+      and(
+        eq(artifacts.sessionId, sessionId),
+        eq(artifacts.stageId, stageId),
+        eq(artifacts.type, type),
+        isNull(artifacts.supersededAt),
+      ),
+    )
+    .limit(1);
+  if (existing[0]) {
+    const error = SINGLE_UPLOAD_ERRORS[type];
+    throw new ApiError(409, error.code, error.message);
+  }
+}
+
+async function insertArtifact(tx: DbTransaction, input: ArtifactWriteInput) {
   return (
-    await db
+    await tx
       .insert(artifacts)
       .values({
         sessionId: input.sessionId,
@@ -396,6 +461,16 @@ export async function saveArtifact(
   )[0];
 }
 
+export async function saveArtifact(
+  input: ArtifactWriteInput,
+  options?: ArtifactWriteOptions,
+) {
+  return getDb().transaction(async (tx) => {
+    await assertArtifactWritable(tx, input, options);
+    return insertArtifact(tx, input);
+  });
+}
+
 export async function saveRecordingAudio(input: {
   sessionId: string;
   stageId: StageId;
@@ -408,18 +483,12 @@ export async function saveRecordingAudio(input: {
 }) {
   const db = getDb();
   return db.transaction(async (tx) => {
-    const rows = await tx
-      .select()
-      .from(studentSessions)
-      .where(eq(studentSessions.id, input.sessionId))
-      .limit(1);
-    const session = rows[0];
-    if (!session) {
-      throw new ApiError(404, "SESSION_NOT_FOUND", "找不到工作階段。");
-    }
-    if (session.currentStage !== input.stageId) {
-      throw new ApiError(409, "STAGE_LOCKED", "此階段目前不可操作。");
-    }
+    await assertArtifactWritable(tx, {
+      sessionId: input.sessionId,
+      stageId: input.stageId,
+      type: "audio",
+    });
+    await assertNoActiveArtifact(tx, input.sessionId, input.stageId, "audio");
 
     const inserted = await tx
       .insert(artifacts)
@@ -533,36 +602,67 @@ export async function markRecordingAnalysisFailed(input: {
 }
 
 export async function replaceArtifactData(
-  input: {
-    sessionId: string;
-    stageId: StageId;
-    type: string;
-    data: Record<string, unknown>;
-    status?: string;
-    storageProvider?: string;
-    storageLocator?: string;
-    mimeType?: string;
-    sizeBytes?: number;
-    sha256?: string;
-  },
-  options?: {
-    allowWhenCurrentStage?: StageId;
+  input: ArtifactWriteInput & { data: Record<string, unknown> },
+  options?: ArtifactWriteOptions,
+) {
+  // Check the stage before superseding, and do both in one transaction, so a
+  // rejected write never leaves the previous artifact superseded with no
+  // replacement.
+  return getDb().transaction(async (tx) => {
+    await assertArtifactWritable(tx, input, options);
+    const now = new Date();
+    await tx
+      .update(artifacts)
+      .set({ supersededAt: now, updatedAt: now })
+      .where(
+        and(
+          eq(artifacts.sessionId, input.sessionId),
+          eq(artifacts.stageId, input.stageId),
+          eq(artifacts.type, input.type),
+          isNull(artifacts.supersededAt),
+        ),
+      );
+    return insertArtifact(tx, input);
+  });
+}
+
+/**
+ * Replaces several artifacts in one transaction, so readers never see a mix
+ * of outputs from different runs. `assertCurrent` runs inside the
+ * transaction and can veto the write (e.g. the source image was replaced).
+ */
+export async function replaceArtifactsAtomically(
+  writes: Array<ArtifactWriteInput & { data: Record<string, unknown> }>,
+  options?: ArtifactWriteOptions & {
+    assertCurrent?: (tx: DbTransaction) => Promise<void>;
   },
 ) {
-  const db = getDb();
-  await db
-    .update(artifacts)
-    .set({ supersededAt: new Date(), updatedAt: new Date() })
-    .where(
-      and(
-        eq(artifacts.sessionId, input.sessionId),
-        eq(artifacts.stageId, input.stageId),
-        eq(artifacts.type, input.type),
-        isNull(artifacts.supersededAt),
-      ),
-    );
-  return saveArtifact(input, options);
+  return getDb().transaction(async (tx) => {
+    for (const write of writes) {
+      await assertArtifactWritable(tx, write, options);
+    }
+    await options?.assertCurrent?.(tx);
+    const now = new Date();
+    const inserted = [];
+    for (const write of writes) {
+      await tx
+        .update(artifacts)
+        .set({ supersededAt: now, updatedAt: now })
+        .where(
+          and(
+            eq(artifacts.sessionId, write.sessionId),
+            eq(artifacts.stageId, write.stageId),
+            eq(artifacts.type, write.type),
+            isNull(artifacts.supersededAt),
+          ),
+        );
+      inserted.push(await insertArtifact(tx, write));
+    }
+    return inserted;
+  });
 }
+
+export type { DbTransaction };
 
 export async function saveMessage(input: {
   sessionId: string;
@@ -688,5 +788,16 @@ export async function completeCurrentStage(
         status: "active",
       });
     }
+  });
+}
+
+export async function saveUploadedImage(
+  input: Omit<ArtifactWriteInput, "type">,
+) {
+  const write = { ...input, type: "image" };
+  return getDb().transaction(async (tx) => {
+    await assertArtifactWritable(tx, write);
+    await assertNoActiveArtifact(tx, input.sessionId, input.stageId, "image");
+    return insertArtifact(tx, write);
   });
 }
