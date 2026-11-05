@@ -16,7 +16,7 @@ import {
 } from "@/lib/ai/provider-service";
 import {
   getSessionView,
-  saveArtifact,
+  saveUploadedImage,
 } from "@/lib/services/session-service";
 
 export const maxDuration = 180;
@@ -55,6 +55,18 @@ export async function POST(request: Request) {
       );
     }
 
+    if (
+      view.artifacts.some(
+        (artifact) => artifact.stageId === stage && artifact.type === "image",
+      )
+    ) {
+      throw new ApiError(
+        409,
+        "IMAGE_EXISTS",
+        "此階段已有上傳圖片；請先刪除原圖片再重新上傳。",
+      );
+    }
+
     const file = formData.get("file");
     if (!(file instanceof File)) {
       throw new ApiError(400, "IMAGE_REQUIRED", "請選擇要上傳的圖片。");
@@ -88,10 +100,9 @@ export async function POST(request: Request) {
     );
     uploadedUrl = blob.url;
 
-    const savedImage = await saveArtifact({
+    const savedImage = await saveUploadedImage({
       sessionId: claims.sessionId,
       stageId: stage,
-      type: "image",
       storageProvider: "vercel-blob",
       storageLocator: blob.url,
       mimeType: file.type,

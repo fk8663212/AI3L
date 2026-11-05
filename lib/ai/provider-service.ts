@@ -31,8 +31,9 @@ import { normalizeTaskConfig } from "@/lib/domain/default-task";
 import { decryptSecret, hashForLog } from "@/lib/security/crypto";
 import { ApiError } from "@/lib/security/request";
 import {
-  replaceArtifactData,
+  replaceArtifactsAtomically,
   saveMessage,
+  type DbTransaction,
 } from "@/lib/services/session-service";
 
 export async function taskAIContext(sessionId: string) {
@@ -70,6 +71,36 @@ export async function taskAIContext(sessionId: string) {
       encryptionTag: credential.encryptionTag,
     }),
   };
+}
+
+/**
+ * Locks the drawing an analysis was built from and refuses the write if the
+ * student has deleted or replaced it while the AI was running.
+ */
+async function assertSourceImageCurrent(
+  tx: DbTransaction,
+  sessionId: string,
+  sourceImageArtifactId: string,
+) {
+  const rows = await tx
+    .select({ id: artifacts.id })
+    .from(artifacts)
+    .where(
+      and(
+        eq(artifacts.id, sourceImageArtifactId),
+        eq(artifacts.sessionId, sessionId),
+        isNull(artifacts.supersededAt),
+      ),
+    )
+    .limit(1)
+    .for("update");
+  if (!rows[0]) {
+    throw new ApiError(
+      409,
+      "SOURCE_REPLACED",
+      "手繪圖已更換，舊的分析結果已捨棄。",
+    );
+  }
 }
 
 async function privateBlobBytes(locator: string): Promise<BinaryInput> {
@@ -282,15 +313,24 @@ export async function runStageAI(
     const sentences = artifactRows.find(
       (row) => row.stageId === "sentence_scaffold" && row.type === "sentences",
     );
+    const studentSentences = Array.isArray(sentences?.data.sentences)
+      ? (sentences.data.sentences as string[])
+      : [];
+    // The protocol is "write your own sentences first, then get hints".
+    if (studentSentences.length < 3) {
+      throw new ApiError(
+        409,
+        "SENTENCES_REQUIRED",
+        "請先保存至少三個自己的英文句子，再取得語言鷹架。",
+      );
+    }
     schemaName = "sentence_scaffold";
     schema = sentenceScaffoldSchema;
     prompt = sentenceScaffoldPrompt(
       {
         taskTitle: context.task.title,
         finalConceptMap: conceptDecisions?.data.accepted ?? {},
-        studentSentences: Array.isArray(sentences?.data.sentences)
-          ? (sentences.data.sentences as string[])
-          : [],
+        studentSentences,
       },
       promptConfig.sentenceScaffoldTemplate,
     );
@@ -325,18 +365,15 @@ export async function runStageAI(
 
     const outputType =
       stage === "ai_concept_map" ? "generated_concept_map" : stage;
-    const artifactWriteOptions = allowedCurrentStage
-      ? { allowWhenCurrentStage: allowedCurrentStage }
-      : undefined;
-    await replaceArtifactData(
+    const writes: Parameters<typeof replaceArtifactsAtomically>[0] = [
       {
         sessionId,
         stageId: stage,
         type: outputType,
         data: result.value as Record<string, unknown>,
       },
-      artifactWriteOptions,
-    );
+    ];
+    let annotatedBlobUrl: string | undefined;
     if (stage === "image_analysis" && sourceImageArtifactId) {
       const annotated = imageAnalysisGenerationSchema.parse(result.value);
       if (!binary) throw new Error("Drawing bytes are unavailable.");
@@ -355,7 +392,8 @@ export async function runStageAI(
           addRandomSuffix: true,
         },
       );
-      await replaceArtifactData(
+      annotatedBlobUrl = stored.url;
+      writes.push(
         {
           sessionId,
           stageId: stage,
@@ -373,9 +411,6 @@ export async function runStageAI(
             .update(annotatedBytes)
             .digest("base64url"),
         },
-        artifactWriteOptions,
-      );
-      await replaceArtifactData(
         {
           sessionId,
           stageId: "image_analysis",
@@ -386,8 +421,40 @@ export async function runStageAI(
             rejected: [],
           },
         },
-        artifactWriteOptions,
       );
+    } else if (stage === "ai_concept_map") {
+      // A regenerated map invalidates any review of the previous one.
+      const generated = generatedConceptMapSchema.parse(result.value);
+      writes.push({
+        sessionId,
+        stageId: stage,
+        type: "concept_decisions",
+        data: {
+          pending: [...generated.nodes, ...generated.edges]
+            .filter((item) => item.source === "ai")
+            .map((item) => item.id),
+          accepted: { nodes: [], edges: [] },
+          rejectedIds: [],
+        },
+      });
+    }
+
+    try {
+      await replaceArtifactsAtomically(writes, {
+        allowWhenCurrentStage: allowedCurrentStage,
+        assertCurrent: sourceImageArtifactId
+          ? (tx) => assertSourceImageCurrent(tx, sessionId, sourceImageArtifactId!)
+          : undefined,
+      });
+    } catch (error) {
+      if (annotatedBlobUrl) {
+        try {
+          await del(annotatedBlobUrl);
+        } catch {
+          // Unreferenced blob; harmless if cleanup fails.
+        }
+      }
+      throw error;
     }
     if (!isVisualizationUpload) {
       await saveMessage({
@@ -411,6 +478,21 @@ export async function runStageAI(
       .where(eq(aiRuns.id, run.id));
     return result.value;
   } catch (error) {
+    if (error instanceof ApiError) {
+      // Not a provider failure: the result was valid but no longer applies
+      // (source drawing replaced, or the student left the stage).
+      await db
+        .update(aiRuns)
+        .set({
+          status: "discarded",
+          latencyMs: Date.now() - now,
+          errorCode: error.code,
+          errorMessage: error.message,
+          completedAt: new Date(),
+        })
+        .where(eq(aiRuns.id, run.id));
+      throw error;
+    }
     const rawErrorMessage =
       error instanceof Error ? error.message : "Unknown provider error";
     const safeErrorMessage = rawErrorMessage

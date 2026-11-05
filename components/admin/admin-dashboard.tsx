@@ -1446,6 +1446,9 @@ function ResearchTab({
                   </option>
                 ))}
               </select>
+              <small>
+                退回到目前或先前的階段時，該階段與之後階段的學生作品會標記為已取代，學生需重新完成；舊資料仍保留在匯出中。往後跳過階段則不影響既有作品。
+              </small>
             </div>
             <div className="field">
               <label htmlFor="override-reason">必要理由</label>
