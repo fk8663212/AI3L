@@ -84,8 +84,17 @@ export const SENTENCE_SCAFFOLD_PROMPT_TEMPLATE = `
 export const GOOGLE_TRANSCRIPTION_SYSTEM_PROMPT =
   "You are a faithful English speech transcriber. Preserve learner wording, hesitations, and grammatical errors. Never rewrite or improve the speech.";
 
+// Speech-to-text prompts are context, not instructions: naming a topic here
+// makes the model "hear" that topic in silence or noise, so name none.
 export const OPENAI_TRANSCRIPTION_PROMPT =
-  "The speaker is a Taiwanese secondary-school English learner describing a personal market experience. Preserve the learner's actual words and errors.";
+  "Taiwanese secondary-school English learner. Preserve the learner's actual words and errors.";
+
+/**
+ * Always appended to the transcription prompt, whatever the task's template
+ * says: a silent or unintelligible recording must come back empty.
+ */
+export const TRANSCRIPTION_OUTPUT_CONTRACT =
+  "Transcribe only words that are actually audible in the recording. If there is no intelligible speech (silence, background noise, breathing, or only non-English sounds), return an empty text and no segments. Never guess, complete, or invent speech from the task topic or from context.";
 
 export const TRANSCRIPTION_PROMPT_TEMPLATE =
   "Transcribe the attached learner recording in English. Its measured duration is {{recording.durationSeconds}} seconds. Return timestamps bounded by that duration.";
@@ -193,9 +202,9 @@ export function speechTranscriptionPrompt(
   durationSeconds: number,
   template = TRANSCRIPTION_PROMPT_TEMPLATE,
 ): string {
-  return renderPromptTemplate(template, {
+  return `${renderPromptTemplate(template, {
     "recording.durationSeconds": durationSeconds,
-  });
+  }).trim()}\n\n${TRANSCRIPTION_OUTPUT_CONTRACT}`;
 }
 
 export function speechEvaluationPrompt(input: {

@@ -4441,3 +4441,19 @@ button {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Live microphone level while recording: shows the student the mic hears them. */
+.voice-meter {
+  height: 6px;
+  margin-top: 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
+  overflow: hidden;
+}
+.voice-meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--green);
+  transition: width 90ms linear;
+}
