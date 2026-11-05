@@ -38,6 +38,8 @@ export type ArtifactView = {
 export type SessionView = {
   session: {
     id: string;
+    /** Shown to the student so a shared device makes clear whose work this is. */
+    studentLabel: string | null;
     currentStage: StageId;
     stageStatus: string;
     stateVersion: number;
@@ -248,9 +250,14 @@ export async function getSessionView(
 ): Promise<SessionView> {
   const db = getDb();
   const joined = await db
-    .select({ session: studentSessions, task: tasks })
+    .select({
+      session: studentSessions,
+      task: tasks,
+      studentLabel: accessCodes.label,
+    })
     .from(studentSessions)
     .innerJoin(tasks, eq(studentSessions.taskId, tasks.id))
+    .innerJoin(accessCodes, eq(studentSessions.accessCodeId, accessCodes.id))
     .where(eq(studentSessions.id, sessionId))
     .limit(1);
   const found = joined[0];
@@ -288,6 +295,7 @@ export async function getSessionView(
   return {
     session: {
       id: found.session.id,
+      studentLabel: found.studentLabel,
       currentStage: found.session.currentStage,
       stageStatus: found.session.stageStatus,
       stateVersion: found.session.stateVersion,

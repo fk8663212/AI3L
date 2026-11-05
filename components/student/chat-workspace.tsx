@@ -7,6 +7,7 @@ import {
   CircleAlert,
   LoaderCircle,
   Lock,
+  LogOut,
   Sparkles,
 } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -908,6 +909,15 @@ export function ChatWorkspace({ initialView }: { initialView: SessionView }) {
     }
   }
 
+  async function signOut() {
+    // Shared classroom devices: the next student must not land in this session.
+    if (!window.confirm("要登出嗎？已保存的進度不會遺失，之後用同一組代碼即可繼續。")) {
+      return;
+    }
+    await fetch("/api/student/logout", { method: "POST" });
+    window.location.assign("/");
+  }
+
   async function completeStage() {
     await perform({
       action: "complete_stage",
@@ -943,9 +953,19 @@ export function ChatWorkspace({ initialView }: { initialView: SessionView }) {
           ))}
         </ol>
         <div className="rail-footer">
-          學生代碼工作階段
+          目前登入
           <br />
-          {view.session.id.slice(0, 8)}
+          <strong>{view.session.studentLabel ?? view.session.id.slice(0, 8)}</strong>
+          <br />
+          <button
+            className="button ghost compact"
+            type="button"
+            style={{ marginTop: 8 }}
+            onClick={signOut}
+          >
+            <LogOut size={14} />
+            不是你？登出
+          </button>
         </div>
       </aside>
 

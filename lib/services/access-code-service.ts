@@ -194,16 +194,24 @@ export async function deleteUnusedAccessCodes(input: {
   return { deleted: deleted.length, skipped };
 }
 
-/** A signed-in student keeps access only while their code is still active. */
+/**
+ * A signed-in student keeps access only while their code is still active and
+ * their task is still published (not archived).
+ */
 export async function studentCodeActive(sessionId: string): Promise<boolean> {
   const rows = await getDb()
     .select({
       disabledAt: accessCodes.disabledAt,
       expiresAt: accessCodes.expiresAt,
+      taskStatus: tasks.status,
     })
     .from(studentSessions)
     .innerJoin(accessCodes, eq(studentSessions.accessCodeId, accessCodes.id))
+    .innerJoin(tasks, eq(studentSessions.taskId, tasks.id))
     .where(eq(studentSessions.id, sessionId))
     .limit(1);
-  return rows[0] ? accessCodeStatus(rows[0]) === "active" : false;
+  const row = rows[0];
+  return Boolean(
+    row && row.taskStatus === "published" && accessCodeStatus(row) === "active",
+  );
 }

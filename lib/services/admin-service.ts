@@ -539,6 +539,36 @@ export async function publishTask(taskId: string): Promise<void> {
   });
 }
 
+/**
+ * Ends a published task: nobody can sign in with its codes or keep working
+ * in its sessions. Data is untouched and the task can be restored.
+ */
+export async function archiveTask(taskId: string) {
+  const db = getDb();
+  const updated = await db
+    .update(tasks)
+    .set({ status: "archived", archivedAt: new Date(), updatedAt: new Date() })
+    .where(and(eq(tasks.id, taskId), eq(tasks.status, "published")))
+    .returning({ id: tasks.id });
+  if (!updated[0]) {
+    throw new ApiError(409, "TASK_NOT_PUBLISHED", "只能封存已發布的任務。");
+  }
+  await audit("task.archived", "task", taskId, {});
+}
+
+export async function restoreTask(taskId: string) {
+  const db = getDb();
+  const updated = await db
+    .update(tasks)
+    .set({ status: "published", archivedAt: null, updatedAt: new Date() })
+    .where(and(eq(tasks.id, taskId), eq(tasks.status, "archived")))
+    .returning({ id: tasks.id });
+  if (!updated[0]) {
+    throw new ApiError(409, "TASK_NOT_ARCHIVED", "只能恢復已封存的任務。");
+  }
+  await audit("task.restored", "task", taskId, {});
+}
+
 export async function overrideSessionStage(input: {
   sessionId: string;
   stageId: typeof studentSessions.$inferSelect.currentStage;

@@ -1,9 +1,11 @@
 import { del, list } from "@vercel/blob";
+import { and, eq, isNotNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import { getDb } from "@/lib/db/client";
+import { artifacts } from "@/lib/db/schema";
+import { selectOrphanBlobs } from "@/lib/domain/blob-cleanup";
 
 export const maxDuration = 60;
-
-const MAX_STAGING_AGE_MS = 24 * 60 * 60 * 1_000;
 
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;
@@ -14,24 +16,29 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false }, { status: 401 });
   }
 
-  const cutoff = Date.now() - MAX_STAGING_AGE_MS;
+  const referenced = new Set(
+    (
+      await getDb()
+        .select({ url: artifacts.storageLocator })
+        .from(artifacts)
+        .where(
+          and(
+            eq(artifacts.storageProvider, "vercel-blob"),
+            isNotNull(artifacts.storageLocator),
+          ),
+        )
+    ).flatMap((row) => (row.url ? [row.url] : [])),
+  );
+
+  const now = new Date();
   let cursor: string | undefined;
   let deleted = 0;
-
   do {
-    const page = await list({
-      prefix: "student/",
-      cursor,
-      limit: 1_000,
-    });
-    const staleAudio = page.blobs.filter(
-      (blob) =>
-        blob.uploadedAt.getTime() < cutoff &&
-        /\/recording\.(?:webm|m4a|ogg|wav)/iu.test(blob.pathname),
-    );
-    if (staleAudio.length) {
-      await del(staleAudio.map((blob) => blob.url));
-      deleted += staleAudio.length;
+    const page = await list({ prefix: "student/", cursor, limit: 1_000 });
+    const orphans = selectOrphanBlobs(page.blobs, referenced, now);
+    if (orphans.length) {
+      await del(orphans.map((blob) => blob.url));
+      deleted += orphans.length;
     }
     cursor = page.hasMore ? page.cursor : undefined;
   } while (cursor);

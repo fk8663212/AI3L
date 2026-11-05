@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import {
   addCustomModel,
+  archiveTask,
+  restoreTask,
   createTaskRevision,
   deleteUnusedTask,
   overrideSessionStage,
@@ -113,6 +115,14 @@ const bodySchema = z.discriminatedUnion("action", [
       .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/),
   }),
   z.object({
+    action: z.literal("archive_task"),
+    taskId: z.string().uuid(),
+  }),
+  z.object({
+    action: z.literal("restore_task"),
+    taskId: z.string().uuid(),
+  }),
+  z.object({
     action: z.literal("delete_task"),
     taskId: z.string().uuid(),
     confirmation: z.string().min(4).max(180),
@@ -181,6 +191,12 @@ export async function POST(request: Request) {
         break;
       case "create_task_revision":
         data = await createTaskRevision(body);
+        break;
+      case "archive_task":
+        await archiveTask(body.taskId);
+        break;
+      case "restore_task":
+        await restoreTask(body.taskId);
         break;
       case "delete_task":
         data = await deleteUnusedTask(body);
