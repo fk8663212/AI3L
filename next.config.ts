@@ -9,6 +9,17 @@ const scriptSrc =
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   allowedDevOrigins: ["127.0.0.1"],
+  // sharp's native binary loads libvips (a separate @img/sharp-libvips-*
+  // package on Linux) through the dynamic linker, which file tracing cannot
+  // see. Without this, Vercel functions fail with
+  // "libvips-cpp.so...: cannot open shared object file".
+  outputFileTracingIncludes: {
+    "/api/**/*": [
+      // glibc Linux only (Vercel's runtime); "linux-" excludes linuxmusl.
+      "./node_modules/@img/sharp-libvips-linux-*/**/*",
+      "./node_modules/@img/sharp-linux-*/**/*",
+    ],
+  },
   experimental: {
     serverActions: {
       bodySizeLimit: "2mb",
