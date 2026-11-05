@@ -34,12 +34,14 @@ function openAIClient(apiKey: string): OpenAI {
 }
 
 function googleAIClient(apiKey: string): GoogleGenAI {
+  // No retryOptions: setting them routes every call through the SDK's retry
+  // wrapper, which replaces any 4xx answer with "Non-retryable exception
+  // <statusText> sending request" and drops the status and Google's message.
+  // Without them the SDK makes one request and throws its ApiError, so the
+  // schema fallback and the quota/key/model messages can see the status.
   return new GoogleGenAI({
     apiKey,
-    httpOptions: {
-      timeout: AI_REQUEST_TIMEOUT_MS,
-      retryOptions: { attempts: 1 },
-    },
+    httpOptions: { timeout: AI_REQUEST_TIMEOUT_MS },
   });
 }
 
