@@ -28,6 +28,7 @@ import { AudioRecorder } from "@/components/student/audio-recorder";
 import { AnnotatedImageCard } from "@/components/student/annotated-image-card";
 import { ConceptMapCard } from "@/components/student/concept-map-card";
 import { ImageUploader } from "@/components/student/image-uploader";
+import { StageStepper } from "@/components/student/stage-stepper";
 import { UploadedImageCard } from "@/components/student/uploaded-image-card";
 
 type Perform = (body: Record<string, unknown>) => Promise<SessionView | null>;
@@ -414,14 +415,26 @@ function ImageAnalysisPanel({ view, perform }: { view: SessionView; perform: Per
   const locked = reviewed && !editing;
 
   return (
-    <div className="stage-panel">
+    <div className="stage-panel panel-columns">
+      <div className="panel-column">
       <StepHeading step={1} title="看看 AI 在你的圖上標了什麼" done />
       <AnnotatedImageCard sourceUrl={sourceImage.downloadUrl} annotated={annotated.data} />
-      <p className="panel-hint">AI 的描述：{parsed.data.sceneSummaryZh}</p>
+      <div className="ai-note">
+        <Sparkles size={18} aria-hidden="true" />
+        <div>
+          <strong>AI 看到的場景</strong>
+          <p>{parsed.data.sceneSummaryZh}</p>
+        </div>
+      </div>
+      </div>
 
+      <div className="panel-column">
       <StepHeading step={2} title="每個詞都要決定：接受、修改或拒絕" done={reviewed} />
+      <div className="review-progress" aria-hidden="true">
+        <span style={{ width: `${((suggestions.length - undecided) / suggestions.length) * 100}%` }} />
+      </div>
       <p className="panel-hint">
-        只保留真的出現在你的圖或經驗裡的詞。AI 可能會看錯。
+        已決定 {suggestions.length - undecided} / {suggestions.length}。只保留真的出現在你的圖或經驗裡的詞，AI 可能會看錯。
       </p>
       <div className="review-list">
         {suggestions.map((item) => {
@@ -505,6 +518,7 @@ function ImageAnalysisPanel({ view, perform }: { view: SessionView; perform: Per
           {undecided > 0 ? `還有 ${undecided} 個詞沒有決定` : emptyEdit ? "修改的英文不可空白" : "送出詞彙審核"}
         </button>
       )}
+      </div>
     </div>
   );
 }
@@ -563,12 +577,15 @@ function AIConceptPanel({ view, perform }: { view: SessionView; perform: Perform
   const locked = reviewed && !editing;
 
   return (
-    <div className="stage-panel">
+    <div className="stage-panel panel-columns">
+      <div className="panel-column">
       <StepHeading step={1} title="比較 AI 的擴充概念圖" done />
       <ConceptMapCard map={{ nodes: keptNodes, edges: keptEdges }} title="擴充概念圖（預覽你的選擇）" />
+      </div>
 
+      <div className="panel-column">
       <StepHeading step={2} title="每個 AI 新增的項目都要決定：保留或移除" done={reviewed} />
-      <p className="panel-hint">黃色是 AI 新增的。只保留符合你經驗的內容；移除概念時，連到它的關係也會一起移除。</p>
+      <p className="panel-hint">橘色是 AI 新增的。只保留符合你經驗的內容；移除概念時，連到它的關係也會一起移除。</p>
       <div className="review-list">
         {aiItems.map((item) => {
           const isNode = "labelEn" in item;
@@ -631,6 +648,7 @@ function AIConceptPanel({ view, perform }: { view: SessionView; perform: Perform
           {undecided > 0 ? `還有 ${undecided} 項沒有決定` : "確認概念圖"}
         </button>
       )}
+      </div>
     </div>
   );
 }
@@ -896,98 +914,66 @@ export function ChatWorkspace({ initialView }: { initialView: SessionView }) {
 
   return (
     <main className="workspace student-workspace">
-      <aside className="stage-rail">
-        <div className="rail-brand">
-          <span className="brand-mark">A3</span>
-          <strong>Speaking Lab</strong>
-        </div>
-        <ol className="stage-list">
-          {view.stages.map((item) => (
-            <li
-              className={`stage-item ${item.status}`}
-              data-order={item.order}
-              key={item.id}
-              aria-current={item.status === "active" ? "step" : undefined}
-            >
-              <strong>{item.title}</strong>
-              <small>
-                {item.status === "completed" ? "已完成" : item.status === "active" ? "進行中" : "尚未開始"}
-              </small>
-            </li>
-          ))}
-        </ol>
-        <div className="rail-footer">
-          目前登入
-          <br />
-          <strong>{studentLabel}</strong>
-          <br />
-          <button className="rail-signout" type="button" onClick={signOut}>
-            <LogOut size={14} />
-            不是你？登出
-          </button>
-        </div>
-      </aside>
-
       <section className="chat-shell student-shell">
-        <header className="chat-header">
-          <div>
-            <h1>{view.task.title}</h1>
-            <p>
-              {view.session.completed
-                ? "七個階段全部完成"
-                : `第 ${currentDefinition.order} / ${STAGES.length} 階段`}
-            </p>
+        <header className="app-bar">
+          <div className="app-bar-brand">
+            <span className="brand-mark" aria-hidden="true">A3</span>
+            <div>
+              <strong>{view.task.title}</strong>
+              <span>
+                {view.session.completed
+                  ? "七個階段全部完成"
+                  : `第 ${currentDefinition.order} / ${STAGES.length} 階段`}
+              </span>
+            </div>
           </div>
-          <div className="header-account">
+          <StageStepper stages={view.stages} />
+          <div className="app-bar-account">
             <span>{studentLabel}</span>
-            <button className="rail-signout compact" type="button" onClick={signOut}>
-              <LogOut size={14} />
+            <button className="button secondary compact" type="button" onClick={signOut}>
+              <LogOut size={15} aria-hidden="true" />
               登出
             </button>
           </div>
         </header>
-        <div
-          className="stage-progress"
-          role="progressbar"
-          aria-label="整體進度"
-          aria-valuemin={0}
-          aria-valuemax={STAGES.length}
-          aria-valuenow={view.stages.filter((item) => item.status === "completed").length}
-        >
-          <span
-            style={{
-              width: `${(view.stages.filter((item) => item.status === "completed").length / STAGES.length) * 100}%`,
-            }}
-          />
-        </div>
 
         <div className="chat-scroll" ref={mainRef}>
           <div className="chat-column">
             {view.session.completed ? (
               <div className="completion-card">
-                <CheckCircle2 size={28} aria-hidden="true" />
-                <h2>你完成了全部七個階段！</h2>
-                <p>你的作品和錄音都已保存，可以安全關閉這個頁面。下面可以回顧你的學習紀錄。</p>
+                <span className="completion-icon">
+                  <Check size={36} strokeWidth={2.6} aria-hidden="true" />
+                </span>
+                <h1>七個階段全部完成！</h1>
+                <p>你的作品和錄音都已保存。可以登出並關閉這個頁面，下面可以回顧你的學習紀錄。</p>
+                <button className="button" type="button" onClick={signOut}>
+                  <LogOut size={17} aria-hidden="true" />
+                  登出
+                </button>
               </div>
             ) : (
               <>
-                <div className="phase-intro">
-                  <p className="eyebrow">
-                    第 {currentDefinition.order} 階段
-                    {AI_HELP_STAGES.has(stage) ? " · AI 會協助你" : " · 這一階段由你自己完成"}
-                  </p>
-                  <h2>{currentDefinition.title}</h2>
-                  <p>{stageConfig.instruction}</p>
+                <div className="stage-intro">
+                  <div className="stage-intro-text">
+                    <span className={`stage-badge ${AI_HELP_STAGES.has(stage) ? "ai" : "self"}`}>
+                      {AI_HELP_STAGES.has(stage) ? "AI 會協助你" : "這一階段由你自己完成"}
+                    </span>
+                    <h1>{currentDefinition.title}</h1>
+                    <p>{stageConfig.instruction}</p>
+                  </div>
                   {view.session.consented ? (
-                    <ol className="stage-checklist" aria-label="這個階段要完成的事">
-                      {checklist.map((step) => (
-                        <li className={step.done ? "done" : ""} key={step.label}>
-                          {step.done ? <CheckCircle2 size={16} aria-hidden="true" /> : <Circle size={16} aria-hidden="true" />}
-                          <span>{step.label}</span>
-                          <span className="visually-hidden">{step.done ? "（已完成）" : "（未完成）"}</span>
-                        </li>
-                      ))}
-                    </ol>
+                    <div className="stage-todo">
+                      <strong>這個階段要完成</strong>
+                      <ol className="stage-checklist" aria-label="這個階段要完成的事">
+                        {checklist.map((step) => (
+                          <li className={step.done ? "done" : ""} key={step.label}>
+                            {step.done ? <CheckCircle2 size={20} aria-hidden="true" /> : <Circle size={20} aria-hidden="true" />}
+                            <span>{step.label}</span>
+                            <span className="visually-hidden">{step.done ? "（已完成）" : "（未完成）"}</span>
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
                   ) : null}
                 </div>
 
@@ -1013,7 +999,7 @@ export function ChatWorkspace({ initialView }: { initialView: SessionView }) {
         </div>
 
         {view.session.consented && !view.session.completed ? (
-          <footer className="chat-composer action-bar">
+          <footer className={`chat-composer action-bar ${view.gate.ok ? "ready" : ""}`}>
             <div className="composer-inner">
               {error ? (
                 <div className="error-banner" role="alert">
@@ -1024,15 +1010,15 @@ export function ChatWorkspace({ initialView }: { initialView: SessionView }) {
                 <span aria-live="polite">
                   {view.gate.ok
                     ? isLastStage
-                      ? "都完成了，可以提交後測。"
-                      : "這個階段的事都完成了，可以進入下一階段。"
+                      ? "都完成了！可以提交後測。"
+                      : "這個階段完成了！"
                     : remaining > 1
                       ? `還有 ${remaining} 件事要完成。下一步：${view.gate.message}`
                       : `下一步：${view.gate.message}`}
                 </span>
                 <button className="button" type="button" disabled={!view.gate.ok || busy} onClick={completeStage}>
                   {isLastStage ? "提交並完成" : `完成，進入第 ${currentDefinition.order + 1} 階段`}
-                  <ChevronRight size={17} />
+                  <ChevronRight size={18} aria-hidden="true" />
                 </button>
               </div>
             </div>

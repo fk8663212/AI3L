@@ -272,7 +272,7 @@ export function AccessCodesTab({
         </div>
 
         {/* Always rendered (disabled when empty) so ticking a box never shifts the table. */}
-        <div className="stage-panel-row" style={{ flexWrap: "wrap", alignItems: "flex-end" }}>
+        <div className={`bulk-bar ${selected.size ? "active" : ""}`}>
           <strong>{selected.size ? `已選 ${selected.size} 組` : "勾選代碼以批次操作"}</strong>
           <button
             className="button secondary compact"
@@ -366,7 +366,7 @@ export function AccessCodesTab({
                     <strong>{item.label ?? "未命名"}</strong>
                   </td>
                   <td>
-                    <span className={item.status === "active" ? "tag" : "tag warning"}>
+                    <span className={`tag ${item.status === "active" ? "success" : item.status === "disabled" ? "danger" : "muted"}`}>
                       {STATUS_LABEL[item.status]}
                     </span>
                   </td>

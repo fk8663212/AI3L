@@ -6,7 +6,7 @@ import {
   speechEvaluationSchema,
   transcriptSchema,
 } from "@/lib/ai/schemas";
-import type { StageId } from "@/lib/domain/stages";
+import { STAGES, type StageId } from "@/lib/domain/stages";
 import type {
   AdminLearningRecordArtifact,
   AdminLearningRecordMessage,
@@ -18,6 +18,7 @@ import type {
   SessionView,
 } from "@/lib/services/session-service";
 import { AnnotatedImageCard } from "@/components/student/annotated-image-card";
+import { StageStepper } from "@/components/student/stage-stepper";
 import { ConceptMapCard } from "@/components/student/concept-map-card";
 import { SessionArtifactImage } from "@/components/admin/session-print-controls";
 
@@ -31,6 +32,17 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
     : [];
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  ready: "已保存",
+  pending: "處理中",
+  failed: "失敗",
+  deleted: "已刪除",
+};
+
+function statusLabel(status: string): string {
+  return STATUS_LABELS[status] ?? status;
 }
 
 function formatDate(value: string | null): string {
@@ -371,7 +383,7 @@ function FullArtifactCard({
           <small>{formatDate(artifact.createdAt)}</small>
         </div>
         <div className="artifact-status-list">
-          <span className="tag">{artifact.status}</span>
+          <span className="tag">{statusLabel(artifact.status)}</span>
           {artifact.supersededAt ? (
             <span className="tag warning">
               已被取代 · {formatDate(artifact.supersededAt)}
@@ -401,11 +413,11 @@ function SessionMetadata({ session }: { session: AdminSessionMeta }) {
       </div>
       <div>
         <span>目前階段</span>
-        <strong>{session.currentStage}</strong>
+        <strong>{STAGES.find((stage) => stage.id === session.currentStage)?.title ?? session.currentStage}</strong>
       </div>
       <div>
         <span>狀態</span>
-        <strong>{session.completedAt ? "completed" : session.stageStatus}</strong>
+        <strong>{session.completedAt ? "已完成" : "進行中"}</strong>
       </div>
       <div>
         <span>研究同意</span>
@@ -450,7 +462,7 @@ function StudentArtifactHistory({
               <div className="artifact-card">
                 <div className="artifact-card-header">
                   <span>學生圖片</span>
-                  <span className="tag">{artifact.status}</span>
+                  <span className="tag">{statusLabel(artifact.status)}</span>
                 </div>
                 <SessionArtifactImage
                   className="artifact-image"
@@ -467,7 +479,7 @@ function StudentArtifactHistory({
               <div className="artifact-card">
                 <div className="artifact-card-header">
                   <span>口說錄音</span>
-                  <span className="tag">{artifact.status}</span>
+                  <span className="tag">{statusLabel(artifact.status)}</span>
                 </div>
                 <AudioArtifact artifact={artifact} />
               </div>
@@ -529,56 +541,34 @@ export function ReadonlyStudentSession({
         <ShieldCheck size={16} />
         管理員唯讀預覽：此頁不會修改學生資料。
       </div>
-      <main className="workspace session-readonly-workspace">
-        <aside className="stage-rail">
-          <div className="rail-brand">
-            <span className="brand-mark">A3</span>
-            <strong>Speaking Lab</strong>
-          </div>
-          <ol className="stage-list">
-            {view.stages.map((stage) => (
-              <li
-                className={`stage-item ${stage.status}`}
-                data-order={stage.order}
-                key={stage.id}
-                aria-current={stage.status === "active" ? "step" : undefined}
-              >
-                <strong>{stage.title}</strong>
-                <small>
-                  {stage.status === "completed"
-                    ? "已完成"
-                    : stage.status === "active"
-                      ? "進行中"
-                      : "尚未開放"}
-                </small>
-              </li>
-            ))}
-          </ol>
-        </aside>
+      <main className="workspace student-workspace session-readonly-workspace">
         <section className="chat-shell">
-          <header className="chat-header">
-            <div>
-              <h1>{view.task.title}</h1>
-              <p>
-                階段 {currentDefinition.order} · {currentDefinition.title}
-              </p>
+          <header className="app-bar">
+            <div className="app-bar-brand">
+              <span className="brand-mark" aria-hidden="true">A3</span>
+              <div>
+                <strong>{view.task.title}</strong>
+                <span>
+                  第 {currentDefinition.order} / {view.stages.length} 階段
+                </span>
+              </div>
             </div>
-            <span className="model-badge">
-              {view.task.provider === "google" ? "Gemini" : "OpenAI"} ·{" "}
-              {view.task.modelId}
-            </span>
+            <StageStepper stages={view.stages} />
+            <span className="readonly-pill">唯讀 · 按鈕已停用</span>
           </header>
           <div className="chat-scroll">
             <div className="chat-column">
-              <div className="phase-intro">
-                <p className="eyebrow">Stage {currentDefinition.order} / 7</p>
-                <h2>{currentDefinition.title}</h2>
-                <p>
-                  {
-                    view.task.config.stageConfig[view.session.currentStage]
-                      .instruction
-                  }
-                </p>
+              <div className="stage-intro">
+                <div className="stage-intro-text">
+                  <span className="stage-badge self">第 {currentDefinition.order} 階段</span>
+                  <h1>{currentDefinition.title}</h1>
+                  <p>
+                    {
+                      view.task.config.stageConfig[view.session.currentStage]
+                        .instruction
+                    }
+                  </p>
+                </div>
               </div>
               {!view.session.consented ? (
                 <div className="consent-card">

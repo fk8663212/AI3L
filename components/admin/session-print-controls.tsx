@@ -50,10 +50,14 @@ export function SessionPrintControls({
 
   return (
     <div className="session-preview-toolbar" data-print-hidden>
-      <Link className="button secondary" href="/admin">
+      <Link className="button ghost toolbar-back" href="/admin">
         <ArrowLeft size={16} />
         返回後台
       </Link>
+      <span className="toolbar-title">
+        <Eye size={18} aria-hidden="true" />
+        學習歷程檢視
+      </span>
       <div className="session-view-switcher" aria-label="Session 檢視模式">
         <Link
           className={mode === "student" ? "active" : ""}
