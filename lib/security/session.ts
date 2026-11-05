@@ -40,13 +40,25 @@ export function createStudentToken(sessionId: string): Promise<string> {
   return sign({ role: "student", sessionId }, "7d");
 }
 
-export function createOAuthState(): Promise<string> {
-  return sign({ purpose: "google-drive-oauth" }, "10m");
+/**
+ * Signed OAuth state. It carries the redirect URI the flow started with, so
+ * the callback exchanges the code with exactly that URI (Google requires the
+ * same one) and returns the admin to the host they signed in on.
+ */
+export function createOAuthState(redirectUri: string): Promise<string> {
+  return sign({ purpose: "google-drive-oauth", redirectUri }, "10m");
 }
 
-export async function verifyOAuthState(token: string): Promise<boolean> {
-  const payload = await verify<JWTPayload & { purpose?: string }>(token);
-  return payload?.purpose === "google-drive-oauth";
+export async function verifyOAuthState(
+  token: string,
+): Promise<{ redirectUri: string } | null> {
+  const payload = await verify<
+    JWTPayload & { purpose?: string; redirectUri?: unknown }
+  >(token);
+  return payload?.purpose === "google-drive-oauth" &&
+    typeof payload.redirectUri === "string"
+    ? { redirectUri: payload.redirectUri }
+    : null;
 }
 
 async function verify<T extends JWTPayload>(

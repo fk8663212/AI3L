@@ -29,7 +29,7 @@ import {
   X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, useSyncExternalStore, type FormEvent } from "react";
 import type { adminOverview } from "@/lib/services/admin-service";
 import type { AdminSessionListPage } from "@/lib/services/admin-session-service";
 import { AccessCodesTab } from "@/components/admin/access-codes-tab";
@@ -410,6 +410,7 @@ function OverviewTab({
                 </a>
               ) : null}
             </div>
+            {!data.drive.verified ? <GoogleRedirectHint /> : null}
           </>
         ) : (
           <>
@@ -420,10 +421,26 @@ function OverviewTab({
               <Link2 size={16} />
               連接 Google Drive
             </a>
+            <GoogleRedirectHint />
           </>
         )}
       </div>
     </div>
+  );
+}
+
+const noSubscription = () => () => {};
+
+/** The redirect URI Google Cloud must list for the host this admin is on. */
+function GoogleRedirectHint() {
+  const origin = useSyncExternalStore(noSubscription, () => window.location.origin, () => "");
+  if (!origin) return null;
+  return (
+    <p className="muted" style={{ lineHeight: 1.6, fontSize: 13 }}>
+      連接時會回到你目前所在的網址。請確認 Google Cloud OAuth 用戶端的「已授權的重新導向 URI」包含：
+      <br />
+      <code>{origin}/api/admin/google/callback</code>
+    </p>
   );
 }
 
