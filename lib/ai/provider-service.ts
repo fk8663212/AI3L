@@ -24,6 +24,7 @@ import {
   imageAnalysisPrompt,
   sentenceScaffoldPrompt,
 } from "@/lib/ai/prompts";
+import { normalizeImageAnalysisOutput } from "@/lib/ai/normalize";
 import { normalizeTaskConfig } from "@/lib/domain/default-task";
 import type { StageId } from "@/lib/domain/stages";
 import { decryptSecret, hashForLog } from "@/lib/security/crypto";
@@ -300,6 +301,8 @@ export async function runStageAI(
       system: promptConfig.baseSystemPrompt,
       prompt,
       binary,
+      normalize:
+        stage === "image_analysis" ? normalizeImageAnalysisOutput : undefined,
     });
 
     const outputType =
