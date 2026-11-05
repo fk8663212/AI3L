@@ -20,7 +20,10 @@ export type BinaryInput = {
 };
 
 export const OPENAI_TRANSCRIPTION_MODEL = "gpt-4o-transcribe";
-export const AI_REQUEST_TIMEOUT_MS = 45_000;
+// Image analysis with thinking can take well over 30 s; the routes allow 180 s.
+export const AI_REQUEST_TIMEOUT_MS = 90_000;
+/** Includes the model's thinking tokens, so leave room for the JSON itself. */
+const GOOGLE_MAX_OUTPUT_TOKENS = 16_000;
 
 function openAIClient(apiKey: string): OpenAI {
   return new OpenAI({
@@ -58,6 +61,8 @@ type GenerateInput<T> = {
   system: string;
   prompt: string;
   binary?: BinaryInput;
+  /** Repairs predictable slips in the model output before validation. */
+  normalize?: (raw: unknown) => unknown;
 };
 
 const GOOGLE_JSON_SCHEMA_KEYS = new Set([
@@ -217,7 +222,7 @@ async function generateGoogle<T>(
         systemInstruction: input.system,
         responseMimeType: "application/json",
         responseJsonSchema: schema,
-        maxOutputTokens: 8_000,
+        maxOutputTokens: GOOGLE_MAX_OUTPUT_TOKENS,
         thinkingConfig: {
           thinkingLevel: ThinkingLevel.LOW,
         },
@@ -251,12 +256,12 @@ ${JSON.stringify(schema)}`;
       config: {
         systemInstruction: input.system,
         responseMimeType: "application/json",
-        maxOutputTokens: 8_000,
+        maxOutputTokens: GOOGLE_MAX_OUTPUT_TOKENS,
       },
     });
   }
+  const finishReason = response.candidates?.[0]?.finishReason;
   if (!response.text) {
-    const finishReason = response.candidates?.[0]?.finishReason;
     throw new Error(
       `Gemini returned no structured output${
         finishReason ? ` (finish reason: ${finishReason})` : ""
@@ -264,8 +269,31 @@ ${JSON.stringify(schema)}`;
     );
   }
 
+  let value: T;
+  try {
+    const raw: unknown = JSON.parse(cleanJson(response.text));
+    value = input.schema.parse(input.normalize ? input.normalize(raw) : raw);
+  } catch (error) {
+    // Say why in the logs and ai_runs: truncated output and schema mismatches
+    // otherwise both surface as a bare SyntaxError or ZodError.
+    const detail =
+      error instanceof z.ZodError
+        ? error.issues
+            .slice(0, 5)
+            .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+            .join("; ")
+        : error instanceof Error
+          ? error.message
+          : String(error);
+    throw new Error(
+      `Gemini output for ${input.schemaName} was unusable${
+        finishReason && finishReason !== "STOP" ? ` (finish reason: ${finishReason})` : ""
+      }: ${detail}`.slice(0, 500),
+    );
+  }
+
   return {
-    value: input.schema.parse(JSON.parse(cleanJson(response.text))),
+    value,
     providerResponseId: response.responseId,
     usage: {
       inputTokens: response.usageMetadata?.promptTokenCount,
