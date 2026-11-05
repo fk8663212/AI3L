@@ -206,7 +206,10 @@ function formatNumber(value: number | null): string {
 
 export function PrePostReportPanel({ data }: { data: Overview }) {
   const tasks = data.tasks.filter((task) => task.status !== "draft");
-  const [taskId, setTaskId] = useState(tasks[0]?.id ?? "");
+  const [taskId, setTaskId] = useState(
+    () =>
+      tasks.find((task) => task.status === "published")?.id ?? tasks[0]?.id ?? "",
+  );
   const report = useAdminData<{
     rows: PrePostRow[];
     summary: Record<(typeof MEASURES)[number], MeasureSummary>;

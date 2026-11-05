@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { and, asc, eq, inArray, isNull, notExists, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, notExists } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import {
   accessCodes,
@@ -61,13 +61,16 @@ export async function generateAccessCodes(
   }
   assertFuture(expiresAt);
 
-  // Continue numbering after this task's existing codes, so a second batch
-  // does not reuse "Student 001".
-  const existing = await db
-    .select({ value: sql<number>`count(*)` })
+  // Continue after the highest existing "Student NNN" label. Counting rows
+  // would reuse a label once codes have been deleted.
+  const labels = await db
+    .select({ label: accessCodes.label })
     .from(accessCodes)
     .where(eq(accessCodes.taskId, taskId));
-  const offset = Number(existing[0]?.value ?? 0);
+  const offset = labels.reduce((max, row) => {
+    const match = /^Student (\d+)$/u.exec(row.label ?? "");
+    return match ? Math.max(max, Number(match[1])) : max;
+  }, 0);
 
   const output = Array.from({ length: count }, (_, index) => ({
     code: newAccessCode(),

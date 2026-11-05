@@ -271,45 +271,60 @@ export function AccessCodesTab({
           </div>
         </div>
 
-        {selected.size ? (
-          <div className="stage-panel-row" style={{ flexWrap: "wrap", alignItems: "flex-end" }}>
-            <strong>已選 {selected.size} 組</strong>
-            <button className="button secondary compact" type="button" onClick={() => void update(selectedIds, "disable")}>
-              <Ban size={14} />
-              停用
-            </button>
-            <button className="button secondary compact" type="button" onClick={() => void update(selectedIds, "enable")}>
-              <CheckCircle2 size={14} />
-              啟用
-            </button>
-            <input
-              aria-label="所選代碼的新有效期限"
-              className="input"
-              type="datetime-local"
-              value={bulkExpiry}
-              onChange={(event) => setBulkExpiry(event.target.value)}
-              style={{ width: "auto" }}
-            />
-            <button
-              className="button secondary compact"
-              type="button"
-              onClick={() => void update(selectedIds, "set_expiry", localInputToIso(bulkExpiry))}
-            >
-              <CalendarClock size={14} />
-              {bulkExpiry ? "設定期限" : "清除期限"}
-            </button>
-            <button
-              className="button danger-outline compact"
-              type="button"
-              disabled={selectedUsed === selected.size}
-              title={selectedUsed === selected.size ? "已使用的代碼只能停用，不能刪除" : undefined}
-              onClick={() => void remove(selectedIds)}
-            >
-              <Trash2 size={14} />
-              刪除
-            </button>
-          </div>
-        ) : null}
+        {/* Always rendered (disabled when empty) so ticking a box never shifts the table. */}
+        <div className="stage-panel-row" style={{ flexWrap: "wrap", alignItems: "flex-end" }}>
+          <strong>{selected.size ? `已選 ${selected.size} 組` : "勾選代碼以批次操作"}</strong>
+          <button
+            className="button secondary compact"
+            type="button"
+            disabled={!selected.size}
+            onClick={() => void update(selectedIds, "disable")}
+          >
+            <Ban size={14} />
+            停用
+          </button>
+          <button
+            className="button secondary compact"
+            type="button"
+            disabled={!selected.size}
+            onClick={() => void update(selectedIds, "enable")}
+          >
+            <CheckCircle2 size={14} />
+            啟用
+          </button>
+          <input
+            aria-label="所選代碼的新有效期限"
+            className="input"
+            type="datetime-local"
+            value={bulkExpiry}
+            disabled={!selected.size}
+            onChange={(event) => setBulkExpiry(event.target.value)}
+            style={{ width: "auto" }}
+          />
+          <button
+            className="button secondary compact"
+            type="button"
+            disabled={!selected.size}
+            onClick={() => void update(selectedIds, "set_expiry", localInputToIso(bulkExpiry))}
+          >
+            <CalendarClock size={14} />
+            {bulkExpiry ? "設定期限" : "清除期限"}
+          </button>
+          <button
+            className="button danger-outline compact"
+            type="button"
+            disabled={!selected.size || selectedUsed === selected.size}
+            title={
+              selected.size && selectedUsed === selected.size
+                ? "已使用的代碼只能停用，不能刪除"
+                : undefined
+            }
+            onClick={() => void remove(selectedIds)}
+          >
+            <Trash2 size={14} />
+            刪除
+          </button>
+        </div>
 
         {notice ? <div className="success-banner">{notice}</div> : null}
         {loadError ? <div className="error-banner">{loadError}</div> : null}

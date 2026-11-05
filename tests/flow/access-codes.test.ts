@@ -78,6 +78,14 @@ describe("generating codes", () => {
     expect(listed.filter((item) => item.expiresAt === expiresAt.toISOString())).toHaveLength(2);
   });
 
+  it("never reuses a label after codes are deleted", async () => {
+    await generateAccessCodes(taskId, 3);
+    const [, second] = await listAccessCodes(taskId);
+    await deleteUnusedAccessCodes({ taskId, codeIds: [second.id] });
+    const next = await generateAccessCodes(taskId, 1);
+    expect(next[0].label).toBe("Student 004");
+  });
+
   it("rejects an expiry in the past", async () => {
     await expect(
       generateAccessCodes(taskId, 1, new Date(Date.now() - 1000)),

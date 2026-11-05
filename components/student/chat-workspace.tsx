@@ -957,12 +957,7 @@ export function ChatWorkspace({ initialView }: { initialView: SessionView }) {
           <br />
           <strong>{view.session.studentLabel ?? view.session.id.slice(0, 8)}</strong>
           <br />
-          <button
-            className="button ghost compact"
-            type="button"
-            style={{ marginTop: 8 }}
-            onClick={signOut}
-          >
+          <button className="rail-signout" type="button" onClick={signOut}>
             <LogOut size={14} />
             不是你？登出
           </button>
