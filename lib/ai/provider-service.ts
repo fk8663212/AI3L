@@ -1,4 +1,4 @@
-import { del, get } from "@vercel/blob";
+import { del, get } from "@/lib/storage/blob-store";
 import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import {
@@ -537,7 +537,7 @@ async function invalidateImageAnalysisArtifacts(sessionId: string) {
     );
 
   const storedUrls = activeRows.flatMap((row) =>
-    row.storageProvider === "vercel-blob" && row.storageLocator
+    (row.storageProvider === "vercel-blob" || row.storageProvider === "local") && row.storageLocator
       ? [row.storageLocator]
       : [],
   );

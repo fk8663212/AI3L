@@ -1,4 +1,4 @@
-import { del, put } from "@vercel/blob";
+import { del, put, uploadStorageProvider } from "@/lib/storage/blob-store";
 import { and, eq, isNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
@@ -100,7 +100,7 @@ export async function POST(request: Request) {
     await saveUploadedImage({
       sessionId: claims.sessionId,
       stageId: stage,
-      storageProvider: "vercel-blob",
+      storageProvider: uploadStorageProvider(),
       storageLocator: blob.url,
       mimeType: file.type,
       sizeBytes: file.size,
@@ -164,7 +164,7 @@ export async function DELETE(request: Request) {
     if (
       !stage.success ||
       found.artifact.type !== "image" ||
-      found.artifact.storageProvider !== "vercel-blob"
+      !["vercel-blob", "local"].includes(found.artifact.storageProvider ?? "")
     ) {
       throw new ApiError(400, "INVALID_IMAGE", "此檔案不是學生上傳圖片。");
     }
@@ -215,7 +215,7 @@ export async function DELETE(request: Request) {
       throw new ApiError(
         502,
         "BLOB_DELETE_FAILED",
-        "雲端圖片刪除失敗，原圖片已保留，請稍後再試。",
+        "圖片刪除失敗，原圖片已保留，請稍後再試。",
       );
     }
     if (stage.data === "visualization") {

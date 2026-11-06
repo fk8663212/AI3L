@@ -256,7 +256,7 @@ function OverviewTab({
     setTestingDrive(true);
     setDriveMessage("");
     const result = await action({ action: "test_drive" });
-    if (result) setDriveMessage("Google Drive 授權與研究資料夾均可正常使用。");
+    if (result) setDriveMessage("錄音儲存庫可正常使用。");
     setTestingDrive(false);
   }
 
@@ -273,7 +273,7 @@ function OverviewTab({
     }),
     {
       key: "drive",
-      label: "Google Drive 錄音庫",
+      label: data.drive.driver === "local" ? "本機錄音庫" : "Google Drive 錄音庫",
       ok: data.drive.verified,
       detail: data.drive.verified ? "已驗證" : data.drive.connected ? "需重新驗證" : "尚未連接",
       optional: false,
@@ -370,17 +370,24 @@ function OverviewTab({
             })}
           </div>
           {!data.drive.verified ? (
-            <p className="readiness-note">Drive 未連接或未通過驗證時，學生無法保存錄音。請先完成連接再開放學生登入。</p>
+            <p className="readiness-note">錄音儲存庫未通過驗證時，學生無法保存錄音。請先確認儲存設定。</p>
           ) : null}
         </div>
       </div>
 
       <div className="admin-card">
         <div className="card-heading">
-          <h2>Google Drive 錄音庫</h2>
+          <h2>{data.drive.driver === "local" ? "本機錄音庫" : "Google Drive 錄音庫"}</h2>
           {data.drive.connected && data.drive.email ? <small>{data.drive.email}</small> : null}
         </div>
-        {data.drive.connected ? (
+        {data.drive.driver === "local" ? (
+          <>
+            <p className="muted">圖片與錄音保存在本機，僅登入後可讀取。此模式不需要 Google Drive 或 Vercel Blob。</p>
+            {data.drive.lastError ? <div className="error-banner">{data.drive.lastError}</div> : null}
+            {driveMessage ? <div className="success-banner">{driveMessage}</div> : null}
+            <button className="button" type="button" disabled={testingDrive} onClick={testDrive}>檢查本機儲存</button>
+          </>
+        ) : data.drive.connected ? (
           <>
             {!data.drive.verified ? (
               <div className="error-banner">Drive 授權尚未通過即時驗證，學生錄音將無法保存。</div>

@@ -1,4 +1,4 @@
-import { del, list } from "@vercel/blob";
+import { del, list } from "@/lib/storage/blob-store";
 import { eq, like, lt, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import {
@@ -57,7 +57,7 @@ export async function deleteParticipantData(input: {
   );
   const blobUrls = new Set(
     rows.flatMap((row) =>
-      row.storageProvider === "vercel-blob" && row.storageLocator
+      (row.storageProvider === "vercel-blob" || row.storageProvider === "local") && row.storageLocator
         ? [row.storageLocator]
         : [],
     ),
@@ -90,7 +90,7 @@ export async function deleteParticipantData(input: {
     throw new ApiError(
       502,
       "PARTICIPANT_FILES_NOT_DELETED",
-      "部分錄音或圖片檔案刪除失敗，資料庫紀錄已保留；請確認 Google Drive 連線後再試一次。",
+      "部分錄音或圖片檔案刪除失敗，資料庫紀錄已保留；請確認錄音與圖片儲存庫後再試一次。",
     );
   }
 

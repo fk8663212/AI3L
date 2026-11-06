@@ -536,6 +536,7 @@ export async function saveRecordingAudio(input: {
   sessionId: string;
   stageId: StageId;
   audio: {
+    storageProvider?: "local" | "google-drive";
     storageLocator: string;
     mimeType: string;
     sizeBytes: number;
@@ -559,7 +560,7 @@ export async function saveRecordingAudio(input: {
         type: "audio",
         status: "ready",
         data: withRecordingAnalysisStatus(input.audio.data, "pending", new Date()),
-        storageProvider: "google-drive",
+        storageProvider: input.audio.storageProvider ?? "google-drive",
         storageLocator: input.audio.storageLocator,
         mimeType: input.audio.mimeType,
         sizeBytes: input.audio.sizeBytes,

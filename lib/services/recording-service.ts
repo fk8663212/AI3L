@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { accessCodes, artifacts, studentSessions, tasks } from "@/lib/db/schema";
 import { withRecordingAnalysisStatus } from "@/lib/domain/recordings";
@@ -48,7 +48,7 @@ export async function listRecordingAnalysisIssues(): Promise<RecordingAnalysisIs
     .where(
       and(
         eq(artifacts.type, "audio"),
-        eq(artifacts.storageProvider, "google-drive"),
+        inArray(artifacts.storageProvider, ["google-drive", "local"]),
         isNull(artifacts.supersededAt),
         sql`(${status} = 'failed' or (${status} = 'pending' and ${updated} < ${stalledBefore}))`,
       ),
@@ -70,7 +70,7 @@ export async function retryRecordingAnalysis(audioArtifactId: string) {
     where: and(
       eq(artifacts.id, audioArtifactId),
       eq(artifacts.type, "audio"),
-      eq(artifacts.storageProvider, "google-drive"),
+      inArray(artifacts.storageProvider, ["google-drive", "local"]),
       isNull(artifacts.supersededAt),
     ),
   });
@@ -117,7 +117,7 @@ export async function retryRecordingAnalysis(audioArtifactId: string) {
     throw new ApiError(
       502,
       "ANALYSIS_RETRY_FAILED",
-      "錄音分析仍然失敗，請確認 AI 供應商與 Google Drive 設定後再試。",
+      "錄音分析仍然失敗，請確認 AI 供應商與錄音儲存庫設定後再試。",
     );
   }
 }

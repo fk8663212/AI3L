@@ -1,5 +1,5 @@
-import { del, list } from "@vercel/blob";
-import { and, eq, isNotNull } from "drizzle-orm";
+import { del, list } from "@/lib/storage/blob-store";
+import { and, inArray, isNotNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db/client";
 import { artifacts } from "@/lib/db/schema";
@@ -23,7 +23,7 @@ export async function GET(request: Request) {
         .from(artifacts)
         .where(
           and(
-            eq(artifacts.storageProvider, "vercel-blob"),
+            inArray(artifacts.storageProvider, ["vercel-blob", "local"]),
             isNotNull(artifacts.storageLocator),
           ),
         )

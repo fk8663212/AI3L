@@ -1,0 +1,57 @@
+services:
+  postgres:
+    image: postgres:16-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ai3l}
+      POSTGRES_USER: ${POSTGRES_USER:-ai3l}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Please run npm run local:setup first}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  app:
+    image: ai3l-local
+    build: .
+    restart: unless-stopped
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ai3l}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ai3l}
+      STORAGE_DRIVER: local
+      LOCAL_STORAGE_PATH: /app/.local/storage
+    ports:
+      - "127.0.0.1:${APP_PORT:-3000}:3000"
+    volumes:
+      - ./.env.local:/app/.env.local:ro
+      - ./.local/storage:/app/.local/storage
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 10s
+      start_period: 60s
+      retries: 10
+
+  cleanup:
+    image: ai3l-local
+    restart: unless-stopped
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      CLEANUP_BASE_URL: http://app:3000
+    volumes:
+      - ./.env.local:/app/.env.local:ro
+    command: ["node", "scripts/schedule-cleanup.mjs"]
+
+volumes:
+  postgres-data:

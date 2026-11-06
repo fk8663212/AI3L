@@ -1,7 +1,8 @@
-import { config } from "dotenv";
+import "./load-env";
+import { accessSync, constants, mkdirSync } from "node:fs";
+import path from "node:path";
 
-config({ path: ".env.local", quiet: true });
-config({ quiet: true });
+const local = process.env.STORAGE_DRIVER === "local";
 
 const required = [
   "DATABASE_URL",
@@ -11,12 +12,26 @@ const required = [
   "CRON_SECRET",
   "ADMIN_PASSWORD_HASH",
   "NEXT_PUBLIC_APP_URL",
-  "GOOGLE_CLIENT_ID",
-  "GOOGLE_CLIENT_SECRET",
 ] as const;
 
 const errors: string[] = [];
 const warnings: string[] = [];
+
+if (!local) {
+  for (const name of ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]) {
+    if (!process.env[name]?.trim()) errors.push(`缺少 ${name}`);
+  }
+}
+if (!["local", "vercel"].includes(process.env.STORAGE_DRIVER ?? "vercel")) errors.push("STORAGE_DRIVER 必須為 local 或 vercel");
+if (local) {
+  const root = path.resolve(process.env.LOCAL_STORAGE_PATH ?? ".local/storage");
+  const publicRoot = path.resolve("public");
+  if (root === publicRoot || root.startsWith(publicRoot + path.sep)) errors.push("本機研究資料不得放在 public/ 下");
+  else {
+    try { mkdirSync(root, { recursive: true, mode: 0o700 }); accessSync(root, constants.R_OK | constants.W_OK); }
+    catch { errors.push("LOCAL_STORAGE_PATH 無法讀寫"); }
+  }
+}
 
 for (const name of required) {
   if (!process.env[name]?.trim()) errors.push(`缺少 ${name}`);
@@ -73,6 +88,7 @@ if (
 }
 
 if (
+  !local &&
   !process.env.BLOB_READ_WRITE_TOKEN &&
   !process.env.VERCEL &&
   !process.env.VERCEL_OIDC_TOKEN
@@ -82,7 +98,7 @@ if (
   );
 }
 
-if (!process.env.BLOB_READ_WRITE_TOKEN && !process.env.BLOB_STORE_ID) {
+if (!local && !process.env.BLOB_READ_WRITE_TOKEN && !process.env.BLOB_STORE_ID) {
   errors.push(
     "使用 Vercel Blob OIDC 時必須同時提供 BLOB_STORE_ID，才能簽發學生上傳網址",
   );

@@ -9,6 +9,7 @@ import { SUPPORTED_AUDIO_MIME_TYPES } from "@/lib/domain/recordings";
 import { apiErrorResponse, ApiError } from "@/lib/security/request";
 import { getStudentClaims } from "@/lib/security/session";
 import { getSessionUploadAuthorization } from "@/lib/services/session-service";
+import { localStorageEnabled } from "@/lib/storage/blob-store";
 
 const payloadSchema = z.object({
   kind: z.enum(["image", "audio"]),
@@ -33,8 +34,16 @@ const requestSchema = z.object({
 const SIGNED_UPLOAD_TTL_MS = 10 * 60 * 1_000;
 const SIGNED_TOKEN_TIMEOUT_MS = 10_000;
 
+export async function GET() {
+  try {
+    if (!(await getStudentClaims())) throw new ApiError(401, "UNAUTHORIZED", "請先輸入學生代碼。");
+    return NextResponse.json({ storage: localStorageEnabled() ? "local" : "vercel" });
+  } catch (error) { return apiErrorResponse(error); }
+}
+
 export async function POST(request: Request) {
   try {
+    if (localStorageEnabled()) throw new ApiError(409, "LOCAL_UPLOAD_REQUIRED", "請使用本機上傳介面。");
     const claims = await getStudentClaims();
     if (!claims) throw new ApiError(401, "UNAUTHORIZED", "請先輸入學生代碼。");
     const body = requestSchema.parse(await request.json());

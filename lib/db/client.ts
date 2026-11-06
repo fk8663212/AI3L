@@ -1,24 +1,21 @@
-import { drizzle } from "drizzle-orm/neon-serverless";
-import ws from "ws";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
 import * as schema from "@/lib/db/schema";
 
-let cachedDb: ReturnType<typeof createDb> | undefined;
+const globalDb = globalThis as typeof globalThis & { ai3lDb?: ReturnType<typeof createDb> };
 
 function createDb() {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
     throw new Error(
-      "DATABASE_URL is not configured. Connect a Neon Postgres database before using server features.",
+      "DATABASE_URL is not configured. Set the local PostgreSQL connection in .env.local.",
     );
   }
-  return drizzle({
-    connection: databaseUrl,
-    schema,
-    ws,
-  });
+  const pool = new Pool({ connectionString: databaseUrl, max: 10 });
+  return drizzle({ client: pool, schema });
 }
 
 export function getDb() {
-  cachedDb ??= createDb();
-  return cachedDb;
+  globalDb.ai3lDb ??= createDb();
+  return globalDb.ai3lDb;
 }

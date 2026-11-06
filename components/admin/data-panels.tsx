@@ -125,7 +125,7 @@ export function RecordingIssuesPanel() {
         <div>
           <h2 style={{ marginBottom: 6 }}>錄音分析待處理</h2>
           <p style={{ margin: 0, color: "var(--ink-soft)" }}>
-            逐字稿與口說指標產生失敗，或超過 10 分鐘仍未完成的錄音。重試會從 Google Drive 重新讀取錄音。
+            逐字稿與口說指標產生失敗，或超過 10 分鐘仍未完成的錄音。重試會從錄音儲存庫重新讀取錄音。
           </p>
         </div>
         <div className="stage-panel-row">
@@ -331,7 +331,7 @@ export function RetentionPanel({ onDeleted }: { onDeleted: () => void }) {
   async function purge() {
     if (
       !window.confirm(
-        `要永久刪除這 ${expired.length} 位學生的所有資料嗎？包含 Google Drive 錄音與圖片，刪除後無法復原。`,
+        `要永久刪除這 ${expired.length} 位學生的所有資料嗎？包含錄音與圖片，刪除後無法復原。`,
       )
     ) {
       return;
@@ -462,7 +462,7 @@ export function DeleteParticipantDialog({
       <div className="modal-card">
         <h2>刪除參與者資料</h2>
         <p>
-          會永久刪除 <strong>{expected}</strong> 的錄音（Google Drive）、圖片、對話、AI 紀錄與所有階段資料，並停用其代碼。適用於撤回同意或資料刪除請求，無法復原。
+          會永久刪除 <strong>{expected}</strong> 的錄音、圖片、對話、AI 紀錄與所有階段資料，並停用其代碼。適用於撤回同意或資料刪除請求，無法復原。
         </p>
         <div className="field">
           <label htmlFor="delete-participant-confirm">請輸入「{expected}」以確認</label>

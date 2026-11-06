@@ -1,6 +1,6 @@
 "use client";
 
-import { uploadPresigned } from "@vercel/blob/client";
+import { uploadStudentFile } from "@/lib/client/upload-student-file";
 import { Mic, Pause, RotateCcw, UploadCloud } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { StageId } from "@/lib/domain/stages";
@@ -191,9 +191,9 @@ export function AudioRecorder({
         () => uploadController.abort(),
         UPLOAD_TIMEOUT_MS,
       );
-      let result: Awaited<ReturnType<typeof uploadPresigned>>;
+      let result: Awaited<ReturnType<typeof uploadStudentFile>>;
       try {
-        result = await uploadPresigned(pathname, blob, {
+        result = await uploadStudentFile(pathname, blob, {
           access: "private",
           handleUploadUrl: "/api/student/uploads/blob",
           clientPayload: JSON.stringify({ kind: "audio", stage }),
@@ -260,7 +260,7 @@ export function AudioRecorder({
         setError(
           activePhase === "uploading"
             ? "錄音上傳逾時，請確認網路連線後重試。"
-            : "錄音存入 Google Drive 超過預期時間，請稍後重試；已完成的錄音不會重複保存。",
+            : "錄音存入錄音儲存庫 超過預期時間，請稍後重試；已完成的錄音不會重複保存。",
         );
       } else {
         setError(cause instanceof Error ? cause.message : "錄音保存失敗。");
@@ -274,7 +274,7 @@ export function AudioRecorder({
   const busyLabel =
     savePhase === "uploading"
       ? `正在上傳錄音 ${uploadProgress}%`
-      : "正在存入 Google Drive…";
+      : "正在存入錄音儲存庫…";
 
   return (
     <div>
@@ -333,7 +333,7 @@ export function AudioRecorder({
         <div className="upload-status" role="status" aria-live="polite">
           {savePhase === "uploading"
             ? "正在安全上傳錄音，請勿關閉頁面。"
-            : "錄音已上傳，正在存入 Google Drive；逐字稿與口說評估會在背景繼續處理。"}
+            : "錄音已上傳，正在存入錄音儲存庫；逐字稿與口說評估會在背景繼續處理。"}
         </div>
       ) : null}
       {error ? <div className="error-banner">{error}</div> : null}

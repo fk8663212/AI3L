@@ -20,6 +20,10 @@ const nextConfig: NextConfig = {
       "./node_modules/@img/sharp-linux-*/**/*",
     ],
   },
+  // Private runtime data and credentials must never enter a function bundle.
+  outputFileTracingExcludes: {
+    "/*": ["./.local/**/*", "./backups/**/*", "./.env", "./.env.*", "./.git/**/*"],
+  },
   experimental: {
     serverActions: {
       bodySizeLimit: "2mb",

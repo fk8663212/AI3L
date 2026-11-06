@@ -6,6 +6,7 @@ import { getDb } from "@/lib/db/client";
 import { appConnections } from "@/lib/db/schema";
 import { decryptSecret, encryptSecret } from "@/lib/security/crypto";
 import { ApiError } from "@/lib/security/request";
+import { del as deleteLocalFile, ensureLocalStorage, get as getLocalFile, head as localFileMetadata, isLocalLocator, localStorageEnabled, put as putLocalFile } from "@/lib/storage/blob-store";
 
 const CONNECTION_KIND = "google_drive";
 export const GOOGLE_AUTH_TIMEOUT_MS = 10_000;
@@ -146,12 +147,21 @@ export async function completeGoogleConnection(
 }
 
 export async function googleDriveStatus() {
+  if (localStorageEnabled()) {
+    try {
+      await ensureLocalStorage();
+      return { driver: "local" as const, connected: true, verified: true, email: null, rootFolderId: null, verifiedAt: null, lastError: null };
+    } catch {
+      return { driver: "local" as const, connected: true, verified: false, email: null, rootFolderId: null, verifiedAt: null, lastError: "本機儲存目錄無法讀寫，請檢查 LOCAL_STORAGE_PATH。" };
+    }
+  }
   const db = getDb();
   const connection = await db.query.appConnections.findFirst({
     where: eq(appConnections.kind, CONNECTION_KIND),
   });
   return connection
     ? {
+        driver: "google-drive" as const,
         connected: true,
         email:
           typeof connection.metadata.email === "string"
@@ -169,6 +179,7 @@ export async function googleDriveStatus() {
             : null,
       }
     : {
+        driver: "google-drive" as const,
         connected: false,
         email: null,
         rootFolderId: null,
@@ -241,6 +252,10 @@ async function authorizedDrive() {
 }
 
 export async function testGoogleDriveConnection() {
+  if (localStorageEnabled()) {
+    await ensureLocalStorage();
+    return { verified: true, rootFolderId: "local" };
+  }
   try {
     const { drive, rootFolderId } = await authorizedDrive();
     const result = await drive.files.get(
@@ -270,6 +285,13 @@ export async function uploadAudioToDrive(input: {
   stageId: string;
   extension: string;
 }) {
+  if (localStorageEnabled()) {
+    const blob = await putLocalFile(`student/${input.sessionId}/${input.stageId}/saved/recording.${input.extension}`, input.stream, {
+      access: "private", contentType: input.mimeType, addRandomSuffix: true,
+    });
+    const metadata = await localFileMetadata(blob.url);
+    return { id: blob.url, name: blob.pathname.split("/").at(-1)!, mimeType: input.mimeType, size: String(metadata.size), webViewLink: null };
+  }
   try {
     const { drive, rootFolderId } = await authorizedDrive();
     const taskFolder = await ensureFolder(drive, input.taskSlug, rootFolderId);
@@ -308,6 +330,7 @@ export async function uploadAudioToDrive(input: {
 }
 
 export async function trashDriveFile(fileId: string): Promise<void> {
+  if (isLocalLocator(fileId)) return deleteLocalFile(fileId);
   const { drive } = await authorizedDrive();
   await drive.files.update({
     fileId,
@@ -320,6 +343,7 @@ export async function trashDriveFile(fileId: string): Promise<void> {
  * deletion. A file that is already gone counts as deleted.
  */
 export async function deleteDriveFile(fileId: string): Promise<void> {
+  if (isLocalLocator(fileId)) return deleteLocalFile(fileId);
   const { drive } = await authorizedDrive();
   try {
     await drive.files.delete({ fileId });
@@ -334,6 +358,11 @@ export async function deleteDriveFile(fileId: string): Promise<void> {
 }
 
 export async function getDriveFileStream(fileId: string) {
+  if (isLocalLocator(fileId)) {
+    const file = await getLocalFile(fileId, { access: "private" });
+    if (!file?.stream || file.statusCode !== 200) throw new ApiError(404, "AUDIO_NOT_FOUND", "找不到錄音。");
+    return { stream: file.stream, name: file.blob.pathname.split("/").at(-1)!, mimeType: file.blob.contentType, size: String(file.blob.size) };
+  }
   const { drive } = await authorizedDrive();
   const metadata = await drive.files.get({
     fileId,

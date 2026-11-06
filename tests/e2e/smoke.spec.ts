@@ -4,7 +4,7 @@ test("student entry keeps the research flow focused", async ({ page }, testInfo)
   await page.goto("/");
   await expect(page).toHaveTitle(/AI3L Speaking Lab/);
   await expect(
-    page.getByRole("heading", { name: "先畫出想法，再用英語說出來。" }),
+    page.getByRole("heading", { name: /^先畫出想法，\s*再用英語說出來。$/u }),
   ).toBeVisible();
   await expect(page.getByLabel("學生代碼")).toBeVisible();
   await expect(page.getByRole("button", { name: "進入學習" })).toBeVisible();

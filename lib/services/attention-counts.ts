@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { artifacts, studentSessions, tasks } from "@/lib/db/schema";
 import { DEFAULT_TASK_CONFIG } from "@/lib/domain/default-task";
@@ -33,7 +33,7 @@ export function countRecordingAnalysisIssues(now: Date = new Date()) {
       .where(
         and(
           eq(artifacts.type, "audio"),
-          eq(artifacts.storageProvider, "google-drive"),
+          inArray(artifacts.storageProvider, ["google-drive", "local"]),
           isNull(artifacts.supersededAt),
           sql`(${status} = 'failed' or (${status} = 'pending' and ${updated} < ${stalledBefore}))`,
         ),

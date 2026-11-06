@@ -2,13 +2,13 @@
 
 > **Macro／Micro 開發狀態：目前僅以固定範例做展示，尚未整合正式學生學習流程。**
 >
-> 本分支 `feature/macro-micro-speaking` 先保留給老師確認形式的「大稻埕」Demo。展示頁可切換單層圖與 Macro／Micro 雙層圖，並同步顯示段落子圖、英文關鍵詞與句首；所有內容都是預先設定的範例，尚未接上學生自己的資料、AI 產出或正式研究流程。
+> 「大稻埕」Demo 先保留給老師確認形式。展示頁可切換單層圖與 Macro／Micro 雙層圖，並同步顯示段落子圖、英文關鍵詞與句首；所有內容都是預先設定的範例，尚未接上學生自己的資料、AI 產出或正式研究流程。
 >
 > 可下載或直接用本機瀏覽器開啟 [`public/demo/index.html`](public/demo/index.html)。完整平台啟動後的路徑為 `/demo/index.html`。展示範圍與尚待整合項目見 [`docs/SPEAKING_DEMO.md`](docs/SPEAKING_DEMO.md)。下方仍是原有研究平台的說明。
 
-以論文與海報中的「視覺化 → 概念建構 → AI 擴充 → 語言鷹架 → 獨立口說」研究流程實作的繁體中文研究平台。專案可部署到 Vercel；學生端刻意只保留左側階段指示器與右側對話工作區，研究控制、供應商設定與匯出集中於管理後台。
+以論文與海報中的「視覺化 → 概念建構 → AI 擴充 → 語言鷹架 → 獨立口說」研究流程實作的繁體中文研究平台。專案支援完整本機部署，也保留 Vercel 雲端模式；學生端刻意只保留左側階段指示器與右側對話工作區，研究控制、供應商設定與匯出集中於管理後台。
 
-> 第一次部署請直接依照 [`docs/DEPLOY_VERCEL.md`](docs/DEPLOY_VERCEL.md) 操作。論文與海報已整理至 [`docs/research/`](docs/research/)。
+> 第一次本機部署請依照 [`docs/LOCAL_DEPLOYMENT.md`](docs/LOCAL_DEPLOYMENT.md) 操作。論文與海報已整理至 [`docs/research/`](docs/research/)。
 
 ## 系統行為
 
@@ -24,53 +24,62 @@
 
 每次 AI 執行都保存供應商、實際模型、提示版本／雜湊、延遲、token 與錯誤。前測、練習與後測錄音會產生忠實逐字稿與描述性口說指標；研究完成前不會把前後測分析回傳給學生。
 
-## 儲存與隱私
+## 完整本機部署（建議）
 
-- 結構化資料：Neon PostgreSQL（Drizzle ORM）。
-- 圖片：Private Vercel Blob，瀏覽時由已驗證的 API 代理。
-- 錄音：先由瀏覽器直接上傳 Private Blob，再轉存至管理員授權的私人 Google Drive；成功後刪除 Blob 暫存。
-- 暫存清理：Vercel Cron 每天清除超過 24 小時、且沒有任何紀錄引用的 Blob（錄音暫存、失敗或放棄的上傳、已刪除參與者的殘留檔）。
-- API Key／Drive refresh token：以 `APP_ENCRYPTION_KEY` 衍生的 AES-256-GCM 金鑰加密。
-- 學生身分：一次一碼的匿名研究代碼，不收姓名或 Email。
-- Google OAuth scope：`drive.file`，只操作本系統建立或取得權限的檔案。
+使用本機 PostgreSQL 與私有檔案目錄，網站、圖片與錄音保存不需要 Vercel、Neon 或 Google Drive 帳號。AI 分析仍需在後台設定 Gemini／OpenAI API Key。
 
-若研究涉及未成年人，正式上線前仍需依研究倫理審查、校方規範與家長同意調整同意文、保存期限、資料刪除與跨境處理方式。
+需求：Node.js 22、已啟動的 Docker Desktop／Docker Engine、Docker Compose v2。
 
-## 本機啟動
-
-需求：Node.js 20.9+、Neon 資料庫、Private Vercel Blob、Google Cloud OAuth Web application。
+在專案根目錄執行：
 
 ```bash
-npm install
-copy .env.example .env.local
-npm run auth:hash -- "至少十二字元的管理員密碼"
+npm run local:setup
+docker compose up --build -d
+docker compose ps
+```
+
+第一次建置完成、`app` 顯示 healthy 後開啟：
+
+- 網站：<http://localhost:3000>
+- 老師登入：<http://localhost:3000/admin/login>
+- 管理員密碼：讀取本機 `.local/admin-password.txt`。
+
+初始化會自動建立 `.env`、`.env.local`、隨機密鑰與資料庫密碼；已有設定時不會覆寫。容器啟動會自動遷移資料庫並建立預設任務草稿。`cleanup` 服務會每日清除過期、未被研究資料引用的暫存檔。
+
+登入後確認「本機錄音庫」可用，設定並測試 AI Key／模型，發布任務，再產生學生代碼，即可使用原有七階段流程。
+
+**完整逐步操作、開發模式、停止／更新、備份／還原及疑難排解，請看 [docs/LOCAL_DEPLOYMENT.md](docs/LOCAL_DEPLOYMENT.md)。**
+
+## 儲存與隱私
+
+- 結構化資料：PostgreSQL，Docker 使用持久資料卷；也支援既有 Neon 連線。
+- `STORAGE_DRIVER=local`：圖片與錄音保存在 `.local/storage/`，只透過已驗證的 API 提供；不直接放在公開目錄。
+- `STORAGE_DRIVER=vercel`：沿用 Private Vercel Blob 保存圖片、暫存錄音，再將錄音轉存私人 Google Drive。
+- 保留原有學生權限、階段限制、後測隱藏、稽核紀錄與管理員確認刪除機制。
+- API Key 以 `APP_ENCRYPTION_KEY` 衍生的 AES-256-GCM 金鑰加密；`.env.local` 必須與資料庫及檔案一起備份。
+- 學生使用匿名研究代碼，不收姓名或 Email。AI API 分析仍會將必要內容傳至所選供應商。
+
+## 本機開發（Node.js + PostgreSQL）
+
+若要修改程式並立即看效果，先完成本機初始化，再執行：
+
+```bash
+npm ci
+docker compose up -d postgres
 npm run db:migrate
 npm run db:seed
+npm run deploy:check
 npm run dev
 ```
 
-把密碼雜湊填入 `ADMIN_PASSWORD_HASH`。其餘三個應用程式密鑰與 `CRON_SECRET` 請各自使用至少 32 bytes 的隨機值。
-
-Google OAuth 的 Authorized redirect URI：
-
-```text
-http://localhost:3000/api/admin/google/callback
-https://你的正式網域/api/admin/google/callback
-```
-
-登入 `/admin/login` 後依序：
-
-1. 保存並測試 Gemini 或 OpenAI API Key。
-2. 連接 Google Drive。
-3. 編輯預設任務，選擇固定供應商／模型並發布。
-4. 在「學生代碼」產生匿名學生代碼（可設有效期限）；明碼只顯示一次，請下載 CSV。
+這個方式與 Docker 完整部署共用本機資料。請先停止 Compose 的 `app`、`cleanup`，避免爭用網站連接埠。
 
 ## 研究期間的管理
 
 - 學生代碼：可單筆或批次停用、重新啟用、設定期限、刪除（已被使用的代碼只能停用）。停用、過期或任務封存會立即中止該學生的存取。
 - 任務封存：研究結束時封存任務，學生無法再登入或作答；資料保留，可恢復發布。
 - 學生登出：共用裝置上，學生可從左側欄登出；同一組代碼可從原進度繼續。
-- 錄音分析重試：「研究資料」列出分析失敗或逾時未完成的錄音，可從 Google Drive 重新讀取並重試。
+- 錄音分析重試：「研究資料」列出分析失敗或逾時未完成的錄音，可從錄音儲存庫重新讀取並重試。
 - 前後測比較：依任務顯示配對樣本的描述性統計，並可下載 CSV。
 - 刪除參與者資料：撤回同意時，可永久刪除單一學生的錄音、圖片與所有紀錄（需輸入學生標籤確認）。
 - 保存期限：「研究資料」列出超過任務保存天數的工作階段，由管理員確認後刪除；系統不會自動刪除。
@@ -83,32 +92,9 @@ https://你的正式網域/api/admin/google/callback
 
 OpenAI 錄音轉錄固定記錄為 `gpt-4o-transcribe`；其餘分析使用任務發布時鎖定的模型。系統不自動切換供應商或模型，避免研究條件漂移。
 
-## 部署至 Vercel
+## 選用：部署至 Vercel
 
-1. 將此資料夾推送至 Git repository，匯入 Vercel。
-2. 在 Vercel Marketplace 建立 Neon；確認 `DATABASE_URL` 已注入。
-3. 建立 **Private** Blob store；確認 `BLOB_READ_WRITE_TOKEN` 已注入。
-4. 在 Production、Preview（需要時）設定 `.env.example` 中其餘變數。
-5. 將 `NEXT_PUBLIC_APP_URL` 設為正式 HTTPS 網域，並在 Google OAuth 登錄你實際開啟後台的網域的 callback（連接 Drive 時會回到目前所在的網域）。
-6. 先執行一次 `npm run db:migrate`，再部署。
-7. 在 `/admin` 完成 API Key、Drive、任務發布與代碼產生。
-
-`vercel.json` 已設定每日一次清理工作，符合 Hobby 每日 Cron 限制；Vercel 會把 `CRON_SECRET` 自動放入 Authorization header。
-
-## Vercel Blob 成本（2026-07-29 查核）
-
-Vercel 官方目前列出的基準價格為：
-
-| 項目 | Hobby 每月含量 | 超額／按量基準 |
-| --- | ---: | ---: |
-| Storage | 1 GB | US$0.023 / GB-month |
-| Simple operations | 10,000 | US$0.40 / 1M |
-| Advanced operations | 2,000 | US$5.00 / 1M |
-| Blob data transfer | 10 GB | US$0.05 / GB 起 |
-
-Private 與 Public Blob 的儲存、操作、上傳單價相同，但 Private Blob 由 Function 代理下載時還會產生 Function 傳輸成本。Client Upload 不收上傳資料傳輸費；`del()` 不計帳單操作費。來源：[Vercel Blob usage and pricing](https://vercel.com/docs/vercel-blob/usage-and-pricing)、[Private storage](https://vercel.com/docs/vercel-blob/private-storage)。
-
-以 100 位學生、每人 1 張壓縮後約 1 MB 圖片、3 段各約 5 MB 錄音估算：永久 Blob 約 0.1 GB；錄音只短暫停留後進 Drive；約 400 次上傳、400 次 `head()`，以及約 1.6 GB 的 Blob 讀取。單看 Blob 通常仍在 Hobby 含量內，但正式研究建議使用 Pro，以避免達 Hobby 上限後 Blob 暫停服務，並另外估算 Vercel Function、Neon、Google Drive 與 AI API 費用。
+若要沿用雲端儲存，設定 `STORAGE_DRIVER=vercel`，並依 [docs/DEPLOY_VERCEL.md](docs/DEPLOY_VERCEL.md) 設定 PostgreSQL／Neon、Private Blob 與 Google OAuth。本機與雲端模式的切換不會自動搬移既有檔案。
 
 ## 驗證
 
@@ -119,4 +105,4 @@ npm test
 npm run build
 ```
 
-研究資料可由管理後台匯出 JSON；錄音原檔保留於 Drive，匯出資料包含其 Drive locator 與所有階段、訊息、artifact、AI run 和稽核紀錄。
+研究資料可由管理後台匯出 JSON；錄音原檔保留於設定的本機或 Drive 儲存庫，匯出資料包含其儲存 locator 與所有階段、訊息、artifact、AI run 和稽核紀錄。

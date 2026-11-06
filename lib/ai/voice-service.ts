@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import {
   generateStructured,
   OPENAI_TRANSCRIPTION_MODEL,
@@ -88,7 +88,7 @@ export async function analyzeRecording(input: {
             eq(artifacts.sessionId, input.sessionId),
             eq(artifacts.stageId, input.stageId),
             eq(artifacts.type, "audio"),
-            eq(artifacts.storageProvider, "google-drive"),
+            inArray(artifacts.storageProvider, ["google-drive", "local"]),
             isNull(artifacts.supersededAt),
           ),
         })

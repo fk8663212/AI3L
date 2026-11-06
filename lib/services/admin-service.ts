@@ -573,7 +573,7 @@ export async function publishTask(taskId: string): Promise<void> {
     throw new ApiError(
       409,
       "DRIVE_NOT_CONNECTED",
-      "發布前必須通過 Google Drive 即時驗證，確保學生錄音可被保存。",
+      "發布前必須通過錄音儲存庫即時驗證，確保學生錄音可被保存。",
     );
   }
   await db
@@ -797,7 +797,7 @@ export async function exportResearchData(taskId?: string) {
       .map((row) => ({
         ...row,
         storageLocator:
-          row.storageProvider === "google-drive"
+          (row.storageProvider === "google-drive" || row.storageProvider === "local")
             ? row.storageLocator
             : row.storageLocator
               ? "[private-blob]"

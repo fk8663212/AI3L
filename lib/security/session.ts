@@ -96,6 +96,7 @@ export async function getStudentClaims(): Promise<StudentClaims | null> {
 export const secureCookieOptions = {
   httpOnly: true,
   sameSite: "lax" as const,
-  secure: process.env.NODE_ENV === "production",
+  secure: process.env.NODE_ENV === "production" &&
+    !/^http:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:\/|$)/.test(process.env.NEXT_PUBLIC_APP_URL ?? ""),
   path: "/",
 };

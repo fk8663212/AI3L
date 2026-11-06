@@ -1,4 +1,4 @@
-import { del, get, head } from "@vercel/blob";
+import { del, get, head, isLocalLocator, uploadStorageProvider } from "@/lib/storage/blob-store";
 import { after, NextResponse } from "next/server";
 import { z } from "zod";
 import {
@@ -71,6 +71,11 @@ export async function POST(request: Request) {
       throw new ApiError(400, "INVALID_UPLOAD", "此階段不接受錄音。");
     }
 
+    if (!view.session.consented) throw new ApiError(409, "CONSENT_REQUIRED", "請先完成研究同意程序。");
+    if (view.artifacts.some((item) => item.stageId === body.stage && item.type === body.kind && item.data.stagingUrl === body.url)) {
+      return NextResponse.json({ ok: true, data: view });
+    }
+
     const metadata = await head(body.url, {
       abortSignal: AbortSignal.timeout(BLOB_METADATA_TIMEOUT_MS),
     });
@@ -132,13 +137,14 @@ export async function POST(request: Request) {
       await saveUploadedImage({
         sessionId: claims.sessionId,
         stageId: body.stage,
-        storageProvider: "vercel-blob",
+        storageProvider: uploadStorageProvider(),
         storageLocator: body.url,
         mimeType: metadata.contentType,
         sizeBytes: metadata.size,
         data: {
           pathname: metadata.pathname,
           stagingPathname: metadata.pathname,
+          stagingUrl: body.url,
         },
       });
     } else {
@@ -186,6 +192,7 @@ export async function POST(request: Request) {
         sessionId: claims.sessionId,
         stageId: body.stage,
         audio: {
+          storageProvider: isLocalLocator(driveFileId) ? "local" : "google-drive",
           storageLocator: driveFileId,
           mimeType: audioMimeType,
           sizeBytes: Number(driveFile.size ?? metadata.size),
@@ -194,6 +201,7 @@ export async function POST(request: Request) {
             driveWebViewLink: driveFile.webViewLink,
             durationSeconds,
             stagingPathname: metadata.pathname,
+            stagingUrl: body.url,
           },
         },
       });
