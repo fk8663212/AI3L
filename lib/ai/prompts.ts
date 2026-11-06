@@ -70,15 +70,25 @@ export const SENTENCE_SCAFFOLD_PROMPT_TEMPLATE = `
 學生確認後的概念圖：
 {{student.finalConceptMapJson}}
 
-學生目前自己的句子：
+學生自己寫的句子（index 從 0 開始）：
 {{student.sentencesJson}}
 
-建立漸進式英語口說鷹架：
-- 5 至 10 個關鍵詞。
-- 3 至 6 個只提供開頭、不代寫整句的 sentence starters。
-- 最多 4 個與學生概念直接相關的示範句，附繁中翻譯。
-- 3 至 5 個可連接敘事的 transition words。
-示範句只作模型，不可聲稱學生做過未提供的事情。
+請針對「每一個」學生句子，建立從少到多、建立在該句之上的三級口說鷹架，幫助學生把自己的句子說得更完整、更具體。
+`.trim();
+
+/**
+ * Always appended to the stage 6 template: the per-sentence shape the UI
+ * renders, and the rule that every hint builds on the student's own sentence.
+ */
+export const SENTENCE_SCAFFOLD_OUTPUT_CONTRACT = `
+【固定研究輸出契約】
+sentences 陣列必須對每一個學生句子各輸出一項，index 對應學生句子的 index，順序相同：
+- question（第 1 級）：一個繁體中文引導問題，引導學生為「這一句」補充細節（在哪裡、看到什麼樣子、跟誰、感覺如何、為什麼）；不可直接給出英文答案。
+- keywords（第 1 級）：2 至 4 個可加進「這一句」的英文詞或片語，附繁中翻譯，優先取自學生保留的概念圖。
+- frame（第 2 級）：以學生「這一句」為基礎的英文句型框架，保留學生原本的意思，用 ___ 標出可以補充的位置，例如學生寫 "I saw horse drawings" 時給 "I saw ___ horse drawings on ___ in Dadaocheng."。
+- example（第 3 級）：把學生「這一句」擴充改寫成一個完整、文法正確、國中生說得出口的英文句子，附繁中翻譯；必須保留學生原意與原本的主要詞彙。
+transitions：3 至 5 個可把這些句子串成一段話的英文連接詞（例如 First、Then、Also）。
+只能使用學生句子與學生保留的概念圖中的內容；不可加入學生沒有提到、概念圖中也沒有的經驗，不可直接糾正文法（第 3 級的示範句自然寫正確即可）。
 `.trim();
 
 export const GOOGLE_TRANSCRIPTION_SYSTEM_PROMPT =
@@ -191,11 +201,19 @@ export function sentenceScaffoldPrompt(input: {
   finalConceptMap: unknown;
   studentSentences: string[];
 }, template = SENTENCE_SCAFFOLD_PROMPT_TEMPLATE): string {
-  return renderPromptTemplate(template, {
+  return renderPromptTemplate(effectiveSentenceScaffoldTemplate(template), {
     "task.title": input.taskTitle,
     "student.finalConceptMapJson": JSON.stringify(input.finalConceptMap),
-    "student.sentencesJson": JSON.stringify(input.studentSentences),
+    "student.sentencesJson": JSON.stringify(
+      input.studentSentences.map((sentence, index) => ({ index, sentence })),
+    ),
   });
+}
+
+export function effectiveSentenceScaffoldTemplate(
+  template = SENTENCE_SCAFFOLD_PROMPT_TEMPLATE,
+): string {
+  return `${template.trim()}\n\n${SENTENCE_SCAFFOLD_OUTPUT_CONTRACT}`;
 }
 
 export function speechTranscriptionPrompt(

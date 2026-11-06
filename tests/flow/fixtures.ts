@@ -32,10 +32,15 @@ export const conceptMapOutput = () => {
 };
 
 export const sentenceScaffoldOutput = () => ({
-  keywords: [{ word: "kite", translation: "風箏", reason: "main object" }],
-  starters: ["I can see", "There is", "It feels"],
-  examples: [{ sentence: "I fly a kite.", translation: "我放風箏。", conceptsUsed: ["kite"] }],
-  transitions: ["Then"],
+  sentences: [0, 1, 2].map((index) => ({
+    index,
+    original: "model text that the server must replace",
+    question: "你在哪裡做這件事？",
+    keywords: [{ word: "beach", translation: "海灘" }],
+    frame: "I ___ on the ___.",
+    example: { sentence: "I fly a red kite on the beach.", translation: "我在海灘放紅色風箏。" },
+  })),
+  transitions: ["First", "Then"],
 });
 
 let cachedPng: Buffer | undefined;

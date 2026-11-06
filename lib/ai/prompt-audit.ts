@@ -1,6 +1,7 @@
 import {
   DEFAULT_TASK_PROMPT_CONFIG,
   effectiveConceptExpansionTemplate,
+  effectiveSentenceScaffoldTemplate,
   effectiveImageAnalysisTemplate,
   type TaskPromptConfig,
 } from "@/lib/ai/prompts";
@@ -146,10 +147,12 @@ const stageCalls: Record<
     promptCall({
       id: "sentence_scaffold",
       title: "漸進式句型鷹架",
-      purpose: "產生關鍵詞、句首、示範句與轉折詞供學生選擇。",
+      purpose: "為學生的每一個句子各產生三級鷹架：引導問題與關鍵詞、句型框架、示範改寫，並提供串連用的連接詞。",
       systemLabel: "AI scaffold system prompt",
       systemPrompt: config.baseSystemPrompt,
-      userPromptTemplate: config.sentenceScaffoldTemplate,
+      userPromptTemplate: effectiveSentenceScaffoldTemplate(
+        config.sentenceScaffoldTemplate,
+      ),
       variables: [
         "task.title",
         "student.finalConceptMapJson",

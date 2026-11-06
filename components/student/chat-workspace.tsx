@@ -17,6 +17,7 @@ import {
   conceptMapSchema,
   imageAnalysisSchema,
   sentenceScaffoldSchema,
+  type SentenceHint,
 } from "@/lib/ai/schemas";
 import { stageChecklist } from "@/lib/domain/stage-checklist";
 import { STAGES, type StageId } from "@/lib/domain/stages";
@@ -27,6 +28,7 @@ import type {
 import { AudioRecorder } from "@/components/student/audio-recorder";
 import { AnnotatedImageCard } from "@/components/student/annotated-image-card";
 import { ConceptMapCard } from "@/components/student/concept-map-card";
+import { ConceptMapEditor } from "@/components/student/concept-map-editor";
 import { ImageUploader } from "@/components/student/image-uploader";
 import { StageStepper } from "@/components/student/stage-stepper";
 import { UploadedImageCard } from "@/components/student/uploaded-image-card";
@@ -665,6 +667,12 @@ function AIConceptPanel({
   });
 
   const background = useBackgroundAI(view, "ai_concept_map", parsed.success, perform, onSaved);
+  const finalMap = conceptMapSchema.safeParse(decisionsArtifact?.data.accepted);
+  const reviewedMap = conceptMapSchema.safeParse(
+    decisionsArtifact?.data.reviewAccepted ?? decisionsArtifact?.data.accepted,
+  );
+  const hasEdits = typeof decisionsArtifact?.data.editedAt === "string";
+  const [savingMap, setSavingMap] = useState(false);
 
   if (!parsed.success) {
     return (
@@ -704,7 +712,7 @@ function AIConceptPanel({
 
       <div className="panel-column">
       <StepHeading step={2} title="每個 AI 新增的項目都要決定：保留或移除" done={reviewed} />
-      <p className="panel-hint">橘色是 AI 新增的。只保留符合你經驗的內容；移除概念時，連到它的關係也會一起移除。</p>
+      <p className="panel-hint">橘色是 AI 新增的。只保留符合你經驗的內容；移除概念時，連到它的關係也會一起移除。確認後，就能在下方步驟 3 直接在圖上移動概念、修改關係詞。</p>
       <div className="review-list">
         {aiItems.map((item) => {
           const isNode = "labelEn" in item;
@@ -747,7 +755,19 @@ function AIConceptPanel({
           <div className="success-banner" style={{ flex: 1 }}>
             <CheckCircle2 size={16} aria-hidden="true" /> 概念圖已確認。
           </div>
-          <button className="button secondary" type="button" onClick={() => setEditing(true)}>
+          <button
+            className="button secondary"
+            type="button"
+            onClick={() => {
+              if (
+                hasEdits &&
+                !window.confirm("重新決定保留或移除後，你在步驟 3 對概念圖做的調整會被捨棄。要繼續嗎？")
+              ) {
+                return;
+              }
+              setEditing(true);
+            }}
+          >
             修改決定
           </button>
         </div>
@@ -768,6 +788,23 @@ function AIConceptPanel({
         </button>
       )}
       </div>
+      {locked && finalMap.success && reviewedMap.success ? (
+        <div className="panel-wide">
+          <StepHeading step={3} title="調整你的概念圖（可以移動、修改、新增或刪除）" done={hasEdits} />
+          <ConceptMapEditor
+            key={decisionsArtifact?.id}
+            map={finalMap.data}
+            reviewed={reviewedMap.data}
+            busy={savingMap}
+            onSave={async (edit) => {
+              setSavingMap(true);
+              const result = await perform({ action: "save_concept_map", ...edit });
+              setSavingMap(false);
+              return Boolean(result);
+            }}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -777,10 +814,103 @@ function AIConceptPanel({
 const AI_HELP_STAGES = new Set<StageId>(["image_analysis", "ai_concept_map", "sentence_scaffold"]);
 
 const HINT_LEVELS = [
-  { level: 1, name: "關鍵詞" },
-  { level: 2, name: "句首提示" },
-  { level: 3, name: "示範句" },
+  { level: 1, name: "想一想", help: "一個引導問題和可以加進去的詞" },
+  { level: 2, name: "句型框架", help: "用你的句子做成的填空句型" },
+  { level: 3, name: "示範改寫", help: "把你的句子擴充成完整的一句" },
 ] as const;
+
+function numberList(value: unknown, length: number): number[] {
+  const source = Array.isArray(value) ? value : [];
+  return Array.from({ length }, (_, index) =>
+    typeof source[index] === "number" ? (source[index] as number) : 0,
+  );
+}
+
+/** One sentence: the student's original, their revision and its hint ladder. */
+function SentenceHintCard({
+  hint,
+  number,
+  value,
+  level,
+  onChange,
+  onOpenLevel,
+}: {
+  hint: SentenceHint | undefined;
+  number: number;
+  value: string;
+  level: number;
+  onChange: (value: string) => void;
+  onOpenLevel: (level: number) => void;
+}) {
+  return (
+    <div className="sentence-hint-card">
+      <div className="sentence-hint-original">
+        <span className="step-number">{number}</span>
+        <div>
+          <small>你原本寫的</small>
+          <p>{hint?.original}</p>
+        </div>
+      </div>
+      <label className="sentence-hint-revision">
+        <span>你的句子（可以邊看提示邊修改）</span>
+        <input className="input" value={value} maxLength={500} onChange={(event) => onChange(event.target.value)} />
+      </label>
+      {hint ? (
+        <div className="hint-ladder compact">
+          {HINT_LEVELS.map((step) => {
+            const open = level >= step.level;
+            const next = level + 1 === step.level;
+            return (
+              <div className={`hint-level ${open ? "open" : ""}`} key={step.level}>
+                <button
+                  className={open ? "hint-toggle open" : "hint-toggle"}
+                  type="button"
+                  disabled={!open && !next}
+                  aria-expanded={open}
+                  onClick={() => {
+                    if (!open) onOpenLevel(step.level);
+                  }}
+                >
+                  <span>第 {step.level} 級 · {step.name}</span>
+                  <small>{open ? "已打開" : next ? step.help : "先打開上一級"}</small>
+                </button>
+                {open && step.level === 1 ? (
+                  <div className="sentence-hint-body">
+                    <p>{hint.question}</p>
+                    {hint.keywords.length ? (
+                      <div className="chip-list">
+                        {hint.keywords.map((item) => (
+                          <span className="chip" key={item.word}>
+                            {item.word}
+                            {item.translation ? ` · ${item.translation}` : ""}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                {open && step.level === 2 ? (
+                  <div className="sentence-hint-body">
+                    <p className="sentence-frame">{hint.frame}</p>
+                    <small className="muted">把 ___ 換成你自己的內容。</small>
+                  </div>
+                ) : null}
+                {open && step.level === 3 ? (
+                  <div className="sentence-hint-body">
+                    <p className="sentence-frame">{hint.example.sentence}</p>
+                    {hint.example.translation ? <small className="muted">{hint.example.translation}</small> : null}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="muted">這一句沒有提示，可以照自己的想法修改。</p>
+      )}
+    </div>
+  );
+}
 
 function SentencePanel({
   view,
@@ -793,110 +923,170 @@ function SentencePanel({
 }) {
   const saved = artifact(view, "sentence_scaffold", "sentences");
   const savedSentences = stringArray(saved?.data.sentences);
+  const originals = stringArray(saved?.data.originals).length
+    ? stringArray(saved?.data.originals)
+    : savedSentences;
   const scaffold = artifact(view, "sentence_scaffold", "sentence_scaffold");
   const parsedScaffold = sentenceScaffoldSchema.safeParse(scaffold?.data);
-  const [text, setText] = useState(savedSentences.join("\n"));
-  const [hintLevel, setHintLevel] = useState(
-    typeof saved?.data.hintLevel === "number" ? saved.data.hintLevel : 0,
+  // Hints belong to the sentences they were built for; after the student
+  // rewrites their original sentences, the old hints no longer apply.
+  const hintsMatch =
+    parsedScaffold.success &&
+    parsedScaffold.data.sentences.every((item) => originals[item.index] === item.original);
+  const scaffoldReady = parsedScaffold.success && hintsMatch && originals.length >= 3;
+  const hintByIndex = new Map(
+    parsedScaffold.success ? parsedScaffold.data.sentences.map((item) => [item.index, item]) : [],
   );
-  const sentences = text.split("\n").map((sentence) => sentence.trim()).filter(Boolean);
-  const unsaved = !sameList(sentences, savedSentences);
+
+  const [draft, setDraft] = useState(originals.join("\n"));
+  const [rewriting, setRewriting] = useState(false);
+  const [revised, setRevised] = useState<string[]>(savedSentences);
+  const [levels, setLevels] = useState<number[]>(() => numberList(saved?.data.hintLevels, savedSentences.length));
+  const [requesting, setRequesting] = useState(false);
   const audio = artifact(view, "sentence_scaffold", "audio");
   const config = view.task.config.stageConfig.sentence_scaffold;
 
-  async function save(level = hintLevel) {
-    return perform({ action: "save_sentences", sentences, hintLevel: level, idempotencyKey: crypto.randomUUID() });
+  const draftSentences = draft.split("\n").map((sentence) => sentence.trim()).filter(Boolean);
+  const writing = !scaffoldReady || rewriting;
+  const revisionsUnsaved = !sameList(revised.map((item) => item.trim()), savedSentences);
+
+  function syncFrom(next: SessionView | null) {
+    if (!next) return;
+    const data = next.artifacts.find((item) => item.stageId === "sentence_scaffold" && item.type === "sentences")?.data;
+    const sentences = stringArray(data?.sentences);
+    setRevised(sentences);
+    setLevels(numberList(data?.hintLevels, sentences.length));
+  }
+
+  async function saveDraftAndGetHints() {
+    setRequesting(true);
+    const afterSave = await perform({
+      action: "save_sentences",
+      phase: "draft",
+      sentences: draftSentences,
+      hintLevel: 0,
+      idempotencyKey: crypto.randomUUID(),
+    });
+    syncFrom(afterSave);
+    if (afterSave) {
+      const afterHints = await perform({ action: "run_ai", stage: "sentence_scaffold" });
+      if (afterHints) setRewriting(false);
+    }
+    setRequesting(false);
+  }
+
+  async function saveRevision(nextLevels = levels) {
+    const sentences = revised.map((item, index) => item.trim() || originals[index]);
+    const result = await perform({
+      action: "save_sentences",
+      phase: "revision",
+      sentences,
+      hintLevel: Math.max(0, ...nextLevels),
+      hintLevels: nextLevels,
+      idempotencyKey: crypto.randomUUID(),
+    });
+    syncFrom(result);
+  }
+
+  async function openLevel(index: number, level: number) {
+    const nextLevels = levels.map((value, position) => (position === index ? level : value));
+    setLevels(nextLevels);
+    // Which hint level each sentence reached is research data: save it now.
+    await saveRevision(nextLevels);
   }
 
   return (
     <div className="stage-panel">
-      <StepHeading step={1} title="先寫下至少 3 個自己的英文句子" done={savedSentences.length >= 3 && !unsaved} />
-      <div className="field" style={{ margin: 0 }}>
-        <label htmlFor="sentences">每行一句，先不要看提示</label>
-        <textarea
-          id="sentences"
-          className="textarea"
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          placeholder={"I saw many red lanterns.\nVisitors bought pineapple cakes.\nThe market felt lively."}
-        />
-      </div>
-      <div className="stage-panel-row">
-        <small className="muted" style={{ flex: 1 }}>
-          已寫 {sentences.length} 句{sentences.length < 3 ? `，還差 ${3 - sentences.length} 句` : ""}
-        </small>
-        <button
-          className={unsaved ? "button" : "button secondary"}
-          type="button"
-          disabled={!sentences.length || !unsaved}
-          onClick={() => save()}
-        >
-          {unsaved ? "保存我的句子" : "已保存"}
-        </button>
-      </div>
-
-      <StepHeading step={2} title="需要的話，逐級打開提示" done={parsedScaffold.success} />
-      {!parsedScaffold.success ? (
-        <button
-          className="button"
-          type="button"
-          disabled={savedSentences.length < 3 || unsaved}
-          onClick={() => perform({ action: "run_ai", stage: "sentence_scaffold" })}
-        >
-          <Sparkles size={17} />
-          {savedSentences.length < 3 || unsaved ? "先保存 3 個句子才能取得提示" : "取得分級提示"}
-        </button>
+      <StepHeading step={1} title="先寫下至少 3 個自己的英文句子" done={scaffoldReady && !rewriting} />
+      {writing ? (
+        <>
+          <div className="field" style={{ margin: 0 }}>
+            <label htmlFor="sentences">每行一句，先不要看提示</label>
+            <textarea
+              id="sentences"
+              className="textarea"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder={"I saw many red lanterns.\nVisitors bought pineapple cakes.\nThe market felt lively."}
+            />
+          </div>
+          <div className="stage-panel-row">
+            <small className="muted" style={{ flex: 1 }}>
+              已寫 {draftSentences.length} 句{draftSentences.length < 3 ? `，還差 ${3 - draftSentences.length} 句` : ""}
+            </small>
+            {rewriting ? (
+              <button className="button secondary" type="button" onClick={() => setRewriting(false)}>
+                取消
+              </button>
+            ) : null}
+            <button
+              className="button"
+              type="button"
+              disabled={draftSentences.length < 3 || requesting}
+              onClick={saveDraftAndGetHints}
+            >
+              {requesting ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />}
+              {requesting ? "正在為每一句準備提示…" : "保存句子並取得提示"}
+            </button>
+          </div>
+        </>
       ) : (
-        <div className="hint-ladder">
-          <p className="panel-hint">提示會一級一級打開。能不用就不用，需要時再打開下一級。</p>
-          {HINT_LEVELS.map(({ level, name }) => {
-            const open = hintLevel >= level;
-            const next = hintLevel + 1 === level;
-            return (
-              <div className={`hint-level ${open ? "open" : ""}`} key={level}>
-                <button
-                  className={open ? "hint-toggle open" : "hint-toggle"}
-                  type="button"
-                  disabled={!open && !next}
-                  aria-expanded={open}
-                  onClick={async () => {
-                    if (open) return;
-                    setHintLevel(level);
-                    await save(level);
-                  }}
-                >
-                  <span>第 {level} 級 · {name}</span>
-                  <small>{open ? "已打開" : next ? "點擊打開" : "先打開上一級"}</small>
-                </button>
-                {open && level === 1 ? (
-                  <div className="chip-list">
-                    {parsedScaffold.data.keywords.map((item) => (
-                      <span className="chip" key={item.word}>{item.word} · {item.translation}</span>
-                    ))}
-                  </div>
-                ) : null}
-                {open && level === 2 ? (
-                  <ul>
-                    {parsedScaffold.data.starters.map((starter) => (
-                      <li key={starter}>{starter}</li>
-                    ))}
-                  </ul>
-                ) : null}
-                {open && level === 3 ? (
-                  <ul>
-                    {parsedScaffold.data.examples.map((example) => (
-                      <li key={example.sentence}>
-                        {example.sentence}
-                        <br />
-                        <small>{example.translation}</small>
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-              </div>
-            );
-          })}
+        <div className="stage-panel-row">
+          <p className="panel-hint" style={{ flex: 1, margin: 0 }}>
+            你寫了 {originals.length} 句。下面每一句都有自己的提示。
+          </p>
+          <button
+            className="button secondary"
+            type="button"
+            onClick={() => {
+              if (window.confirm("重寫原本的句子後，會重新產生提示，已打開的提示和修改都會重來。要繼續嗎？")) {
+                setDraft(originals.join("\n"));
+                setRewriting(true);
+              }
+            }}
+          >
+            重寫原本的句子
+          </button>
         </div>
+      )}
+
+      <StepHeading step={2} title="逐句加強：需要時才打開下一級提示" done={scaffoldReady && levels.some((level) => level > 0)} />
+      {scaffoldReady && !rewriting ? (
+        <>
+          <p className="panel-hint">
+            每一句都有三級提示，能不用就不用。看完提示後，直接在框裡改寫你的句子，最後按「保存修改」。
+          </p>
+          <div className="sentence-hint-list">
+            {originals.map((original, index) => (
+              <SentenceHintCard
+                key={`${index}-${original}`}
+                hint={hintByIndex.get(index)}
+                number={index + 1}
+                value={revised[index] ?? original}
+                level={levels[index] ?? 0}
+                onChange={(value) =>
+                  setRevised((current) => current.map((item, position) => (position === index ? value : item)))
+                }
+                onOpenLevel={(level) => void openLevel(index, level)}
+              />
+            ))}
+          </div>
+          <div className="stage-panel-row">
+            <small className="muted" style={{ flex: 1 }}>
+              {revisionsUnsaved ? "你有還沒保存的修改。" : "修改都已保存。"}
+            </small>
+            <button
+              className={revisionsUnsaved ? "button" : "button secondary"}
+              type="button"
+              disabled={!revisionsUnsaved}
+              onClick={() => void saveRevision()}
+            >
+              {revisionsUnsaved ? "保存修改" : "已保存"}
+            </button>
+          </div>
+        </>
+      ) : (
+        <p className="panel-hint">保存 3 個以上的句子後，每一句都會有自己的三級提示。</p>
       )}
 
       <StepHeading step={3} title="把你的句子說一次並錄下來" done={Boolean(audio)} />
@@ -904,10 +1094,29 @@ function SentencePanel({
         <div className="success-banner">
           <CheckCircle2 size={16} aria-hidden="true" /> 口說練習已保存。
         </div>
-      ) : parsedScaffold.success ? (
+      ) : scaffoldReady && !rewriting ? (
         <>
+          <div className="speaking-script">
+            <small>照著你修改後的句子說，連貫地說成一段：</small>
+            <ol>
+              {savedSentences.map((sentence, index) => (
+                <li key={`${index}-${sentence}`}>{sentence}</li>
+              ))}
+            </ol>
+            {parsedScaffold.success && parsedScaffold.data.transitions.length ? (
+              <div className="speaking-transitions">
+                <small>可以用這些詞把句子串起來：</small>
+                <div className="chip-list">
+                  {parsedScaffold.data.transitions.map((word) => (
+                    <span className="chip" key={word}>{word}</span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+          {revisionsUnsaved ? <p className="panel-hint">先保存修改，錄音時看到的就是你最新的句子。</p> : null}
           <p className="panel-hint">
-            用你寫的句子（可以加上提示裡的詞）連貫地說一段，約 {config.minimumRecordingSeconds}–{config.maximumRecordingSeconds} 秒。
+            約 {config.minimumRecordingSeconds}–{config.maximumRecordingSeconds} 秒。
           </p>
           <AudioRecorder
             stage="sentence_scaffold"
