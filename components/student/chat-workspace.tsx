@@ -712,7 +712,7 @@ function AIConceptPanel({
 
       <div className="panel-column">
       <StepHeading step={2} title="每個 AI 新增的項目都要決定：保留或移除" done={reviewed} />
-      <p className="panel-hint">橘色是 AI 新增的。只保留符合你經驗的內容；移除概念時，連到它的關係也會一起移除。</p>
+      <p className="panel-hint">橘色是 AI 新增的。只保留符合你經驗的內容；移除概念時，連到它的關係也會一起移除。確認後，就能在下方步驟 3 直接在圖上移動概念、修改關係詞。</p>
       <div className="review-list">
         {aiItems.map((item) => {
           const isNode = "labelEn" in item;
