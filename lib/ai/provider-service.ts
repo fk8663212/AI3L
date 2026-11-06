@@ -24,7 +24,10 @@ import {
   imageAnalysisPrompt,
   sentenceScaffoldPrompt,
 } from "@/lib/ai/prompts";
-import { normalizeImageAnalysisOutput } from "@/lib/ai/normalize";
+import {
+  normalizeImageAnalysisOutput,
+  normalizeSentenceScaffoldOutput,
+} from "@/lib/ai/normalize";
 import { normalizeTaskConfig } from "@/lib/domain/default-task";
 import type { StageId } from "@/lib/domain/stages";
 import { decryptSecret, hashForLog } from "@/lib/security/crypto";
@@ -34,6 +37,34 @@ import {
   saveMessage,
   type DbTransaction,
 } from "@/lib/services/session-service";
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+/** The concept map without the student's drag positions, for prompts. */
+function withoutLayout(map: unknown): unknown {
+  if (!map || typeof map !== "object") return {};
+  const source = map as { nodes?: unknown; edges?: unknown };
+  return {
+    nodes: Array.isArray(source.nodes)
+      ? source.nodes.map((node) => {
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const { x, y, edited, ...rest } = node as Record<string, unknown>;
+          return rest;
+        })
+      : [],
+    edges: Array.isArray(source.edges)
+      ? source.edges.map((edge) => {
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const { edited, ...rest } = edge as Record<string, unknown>;
+          return rest;
+        })
+      : [],
+  };
+}
 
 export async function taskAIContext(sessionId: string) {
   const db = getDb();
@@ -186,6 +217,7 @@ export async function runStageAI(
   let schema: ZodType<unknown>;
   let binary: BinaryInput | undefined;
   let sourceImageArtifactId: string | undefined;
+  let scaffoldSentences: string[] = [];
 
   if (stage === "image_analysis") {
     const image = artifactRows.find(
@@ -253,9 +285,12 @@ export async function runStageAI(
     const sentences = artifactRows.find(
       (row) => row.stageId === "sentence_scaffold" && row.type === "sentences",
     );
-    const studentSentences = Array.isArray(sentences?.data.sentences)
-      ? (sentences.data.sentences as string[])
-      : [];
+    // Hints are built for the sentences the student first wrote, not for
+    // revisions made while reading earlier hints.
+    const studentSentences = stringList(
+      sentences?.data.originals ?? sentences?.data.sentences,
+    );
+    scaffoldSentences = studentSentences;
     // The protocol is "write your own sentences first, then get hints".
     if (studentSentences.length < 3) {
       throw new ApiError(
@@ -269,7 +304,7 @@ export async function runStageAI(
     prompt = sentenceScaffoldPrompt(
       {
         taskTitle: context.task.title,
-        finalConceptMap: conceptDecisions?.data.accepted ?? {},
+        finalConceptMap: withoutLayout(conceptDecisions?.data.accepted),
         studentSentences,
       },
       promptConfig.sentenceScaffoldTemplate,
@@ -302,9 +337,20 @@ export async function runStageAI(
       prompt,
       binary,
       normalize:
-        stage === "image_analysis" ? normalizeImageAnalysisOutput : undefined,
+        stage === "image_analysis"
+          ? normalizeImageAnalysisOutput
+          : stage === "sentence_scaffold"
+            ? normalizeSentenceScaffoldOutput(scaffoldSentences)
+            : undefined,
     });
 
+    if (stage === "sentence_scaffold") {
+      // Whatever the provider: each ladder belongs to the student's real
+      // sentence, never to text the model wrote into "original".
+      result.value = sentenceScaffoldSchema.parse(
+        normalizeSentenceScaffoldOutput(scaffoldSentences)(result.value),
+      );
+    }
     const outputType =
       stage === "ai_concept_map" ? "generated_concept_map" : stage;
     const writes: Parameters<typeof replaceArtifactsAtomically>[0] = [

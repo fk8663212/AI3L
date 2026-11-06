@@ -12,7 +12,11 @@ import {
   runStageAI,
 } from "@/lib/ai/provider-service";
 import {
+  ConceptEditError,
+  MAX_EDITED_EDGES,
+  MAX_EDITED_NODES,
   ReviewDecisionError,
+  resolveConceptEdit,
   resolveConceptReview,
   resolveVocabularyReview,
 } from "@/lib/domain/review-decisions";
@@ -50,7 +54,7 @@ function currentArtifactData(
 }
 
 function asReviewError(error: unknown): never {
-  if (error instanceof ReviewDecisionError) {
+  if (error instanceof ReviewDecisionError || error instanceof ConceptEditError) {
     throw new ApiError(400, error.code, error.message);
   }
   throw error;
@@ -90,9 +94,42 @@ const bodySchema = z.discriminatedUnion("action", [
     rejectedIds: z.array(z.string()).max(100),
   }),
   z.object({
+    action: z.literal("save_concept_map"),
+    nodes: z
+      .array(
+        z.object({
+          id: z.string().max(64),
+          labelEn: z.string().max(80),
+          labelZh: z.string().max(80).optional(),
+          category: z.string().max(20).optional(),
+          x: z.number().optional(),
+          y: z.number().optional(),
+        }),
+      )
+      .min(1)
+      .max(MAX_EDITED_NODES),
+    edges: z
+      .array(
+        z.object({
+          id: z.string().max(64),
+          from: z.string().max(64),
+          to: z.string().max(64),
+          relationEn: z.string().max(80),
+          relationZh: z.string().max(80).optional(),
+        }),
+      )
+      .max(MAX_EDITED_EDGES),
+  }),
+  z.object({
     action: z.literal("save_sentences"),
     sentences: z.array(z.string().min(2).max(500)).min(1).max(20),
     hintLevel: z.number().int().min(0).max(3),
+    /**
+     * "draft": the student's own first sentences, before hints (the default).
+     * "revision": the same sentences revised while reading their hints.
+     */
+    phase: z.enum(["draft", "revision"]).optional(),
+    hintLevels: z.array(z.number().int().min(0).max(3)).max(20).optional(),
     idempotencyKey: z.string().min(8).max(128),
   }),
   z.object({
@@ -226,19 +263,91 @@ export async function POST(request: Request) {
           });
         }
         break;
+      case "save_concept_map":
+        if (view.session.currentStage !== "ai_concept_map") {
+          throw new ApiError(409, "STAGE_LOCKED", "目前不是概念圖階段。");
+        }
+        {
+          const decisions = currentArtifactData(view, "ai_concept_map", [
+            "concept_decisions",
+          ]);
+          const pending = Array.isArray(decisions?.pending) ? decisions.pending.length : 1;
+          const reviewed = conceptMapSchema.safeParse(
+            decisions?.reviewAccepted ?? decisions?.accepted,
+          );
+          if (!decisions || pending > 0 || !reviewed.success) {
+            throw new ApiError(
+              409,
+              "REVIEW_REQUIRED",
+              "請先決定每個 AI 新增項目要保留或移除，再調整概念圖。",
+            );
+          }
+          let edited: ReturnType<typeof resolveConceptEdit>;
+          try {
+            edited = resolveConceptEdit(reviewed.data, body);
+          } catch (error) {
+            asReviewError(error);
+          }
+          await replaceArtifactData({
+            sessionId: claims.sessionId,
+            stageId: "ai_concept_map",
+            type: "concept_decisions",
+            data: {
+              ...decisions,
+              accepted: edited,
+              // The review result before any edits, for comparison.
+              reviewAccepted: reviewed.data,
+              editedAt: new Date().toISOString(),
+            },
+          });
+          await saveMessage({
+            sessionId: claims.sessionId,
+            stageId: "ai_concept_map",
+            role: "student",
+            kind: "concept_decisions",
+            content: {
+              accepted: edited,
+              rejectedIds: Array.isArray(decisions.rejectedIds) ? decisions.rejectedIds : [],
+              edited: true,
+            },
+          });
+        }
+        break;
       case "save_sentences":
         if (view.session.currentStage !== "sentence_scaffold") {
           throw new ApiError(409, "STAGE_LOCKED", "目前不是句型鷹架階段。");
         }
-        await replaceArtifactData({
-          sessionId: claims.sessionId,
-          stageId: "sentence_scaffold",
-          type: "sentences",
-          data: {
-            sentences: body.sentences,
-            hintLevel: body.hintLevel,
-          },
-        });
+        {
+          const previous = currentArtifactData(view, "sentence_scaffold", ["sentences"]);
+          const previousOriginals = Array.isArray(previous?.originals)
+            ? (previous.originals as string[])
+            : Array.isArray(previous?.sentences)
+              ? (previous.sentences as string[])
+              : [];
+          const revision = body.phase === "revision";
+          if (revision && previousOriginals.length !== body.sentences.length) {
+            throw new ApiError(
+              409,
+              "SENTENCES_CHANGED",
+              "句子數量和取得提示時不同，請重新整理後再試。",
+            );
+          }
+          const hintLevels = body.sentences.map((_, index) =>
+            revision ? (body.hintLevels?.[index] ?? 0) : 0,
+          );
+          await replaceArtifactData({
+            sessionId: claims.sessionId,
+            stageId: "sentence_scaffold",
+            type: "sentences",
+            data: {
+              sentences: body.sentences,
+              // What the student wrote before any hints; kept for comparison.
+              originals: revision ? previousOriginals : body.sentences,
+              hintLevels,
+              hintLevel: Math.max(body.hintLevel, ...hintLevels),
+            },
+          });
+        }
         await saveMessage({
           sessionId: claims.sessionId,
           stageId: "sentence_scaffold",
@@ -247,6 +356,8 @@ export async function POST(request: Request) {
           content: {
             sentences: body.sentences,
             hintLevel: body.hintLevel,
+            phase: body.phase ?? "draft",
+            hintLevels: body.hintLevels ?? [],
           },
           idempotencyKey: body.idempotencyKey,
         });

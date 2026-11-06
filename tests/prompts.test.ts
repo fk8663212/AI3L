@@ -76,7 +76,13 @@ describe("prompt audit catalog", () => {
         finalConceptMap: { nodes: ["market"] },
         studentSentences: ["I saw a crowd."],
       }),
-    ).toContain('["I saw a crowd."]');
+    ).toContain('[{"index":0,"sentence":"I saw a crowd."}]');
+    expect(
+      sentenceScaffoldPrompt(
+        { taskTitle: "t", finalConceptMap: {}, studentSentences: ["a b"] },
+        "A custom template without any rules",
+      ),
+    ).toContain("固定研究輸出契約");
 
     expect(speechTranscriptionPrompt(42)).toContain("42 seconds");
     expect(

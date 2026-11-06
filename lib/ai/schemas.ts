@@ -59,9 +59,24 @@ export const conceptEdgeSchema = z.object({
   source: z.enum(["student", "ai"]),
 });
 
+/**
+ * A concept map as stored and shown. The AI output uses the plain node and
+ * edge shapes; a map the student has adjusted can also carry positions
+ * (percent of the drawing area) and an "edited" flag on changed items.
+ */
+export const mapNodeSchema = conceptNodeSchema.extend({
+  x: z.number().min(0).max(100).optional(),
+  y: z.number().min(0).max(100).optional(),
+  edited: z.boolean().optional(),
+});
+
+export const mapEdgeSchema = conceptEdgeSchema.extend({
+  edited: z.boolean().optional(),
+});
+
 export const conceptMapSchema = z.object({
-  nodes: z.array(conceptNodeSchema),
-  edges: z.array(conceptEdgeSchema),
+  nodes: z.array(mapNodeSchema),
+  edges: z.array(mapEdgeSchema),
 });
 
 export const generatedConceptMapSchema = z.object({
@@ -71,24 +86,30 @@ export const generatedConceptMapSchema = z.object({
 
 export type ConceptMap = z.infer<typeof conceptMapSchema>;
 
-export const sentenceScaffoldSchema = z.object({
-  keywords: z.array(
-    z.object({
-      word: z.string(),
-      translation: z.string(),
-      reason: z.string(),
-    }),
-  ),
-  starters: z.array(z.string()).min(3).max(8),
-  examples: z.array(
-    z.object({
-      sentence: z.string(),
-      translation: z.string(),
-      conceptsUsed: z.array(z.string()),
-    }),
-  ),
-  transitions: z.array(z.string()),
+/**
+ * Stage 6 scaffold: one hint ladder per student sentence, built on that
+ * sentence. Level 1 is a guiding question plus keywords, level 2 a sentence
+ * frame from the student's own sentence, level 3 an example rewrite of it.
+ */
+export const sentenceHintSchema = z.object({
+  /** 0-based position of the student's sentence. */
+  index: z.number().int().min(0),
+  /** The student's sentence the hints were built for (set by the server). */
+  original: z.string(),
+  question: z.string().min(1),
+  keywords: z
+    .array(z.object({ word: z.string().min(1), translation: z.string() }))
+    .max(5),
+  frame: z.string().min(1),
+  example: z.object({ sentence: z.string().min(1), translation: z.string() }),
 });
+
+export const sentenceScaffoldSchema = z.object({
+  sentences: z.array(sentenceHintSchema).min(1).max(20),
+  transitions: z.array(z.string()).max(8),
+});
+
+export type SentenceHint = z.infer<typeof sentenceHintSchema>;
 
 export type SentenceScaffold = z.infer<typeof sentenceScaffoldSchema>;
 

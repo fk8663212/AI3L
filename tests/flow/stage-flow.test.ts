@@ -388,6 +388,114 @@ describe("one recording and one image per stage", () => {
   });
 });
 
+describe("editing the concept map (stage 5)", () => {
+  async function reviewedMap() {
+    await advanceTo("ai_concept_map");
+    await act({ action: "review_concepts", rejectedIds: [] });
+    const decisions = (await view()).artifacts.find((item) => item.type === "concept_decisions");
+    return decisions?.data.accepted as {
+      nodes: Array<{ id: string; labelEn: string; labelZh: string; source: string }>;
+      edges: Array<{ id: string; from: string; to: string; relationEn: string; relationZh: string }>;
+    };
+  }
+
+  it("saves moved, edited and added items, with the server deciding their source", async () => {
+    const map = await reviewedMap();
+    const [first, second] = map.nodes;
+    const result = await act({
+      action: "save_concept_map",
+      nodes: [
+        { ...first, labelEn: `${first.labelEn} stall`, x: 20, y: 30 },
+        ...map.nodes.slice(1),
+        // Claims to be AI content; the server must record it as the student's.
+        { id: "c-mine", labelEn: "grandma", labelZh: "奶奶", source: "ai", x: 80, y: 70 },
+      ],
+      edges: [
+        ...map.edges,
+        { id: "r-mine", from: "c-mine", to: second.id, relationEn: "buys", relationZh: "買" },
+      ],
+    });
+    expect(result.status).toBe(200);
+
+    const decisions = (await view()).artifacts.find((item) => item.type === "concept_decisions")!;
+    const saved = decisions.data.accepted as typeof map & {
+      nodes: Array<{ id: string; source: string; x?: number; edited?: boolean }>;
+    };
+    const byId = new Map(saved.nodes.map((node) => [node.id, node]));
+    expect(byId.get(first.id)).toMatchObject({ labelEn: `${first.labelEn} stall`, x: 20, edited: true });
+    expect(byId.get(first.id)?.source).toBe(first.source);
+    expect(byId.get("c-mine")?.source).toBe("student");
+    expect(saved.edges.find((edge) => edge.id === "r-mine")).toMatchObject({ source: "student" });
+    // The review result is kept for comparison.
+    expect(decisions.data.reviewAccepted).toEqual(map);
+    // Completing stage 5 still works after editing.
+    expect((await complete()).status).toBe(200);
+  });
+
+  it("rejects relations to concepts that are not on the map", async () => {
+    const map = await reviewedMap();
+    const result = await act({
+      action: "save_concept_map",
+      nodes: map.nodes,
+      edges: [{ id: "r-x", from: map.nodes[0].id, to: "missing", relationEn: "has", relationZh: "有" }],
+    });
+    expect(result.code).toBe("INVALID_CONCEPT_MAP");
+  });
+});
+
+describe("per-sentence scaffold (stage 6)", () => {
+  it("builds one hint ladder per student sentence and keeps the originals", async () => {
+    await advanceTo("sentence_scaffold");
+    await act({
+      action: "save_sentences",
+      phase: "draft",
+      sentences,
+      hintLevel: 0,
+      idempotencyKey: randomUUID(),
+    });
+    expect((await act({ action: "run_ai", stage: "sentence_scaffold" })).status).toBe(200);
+
+    const call = ai.generateStructured.mock.calls.find(([input]) => input.schemaName === "sentence_scaffold");
+    expect(call?.[0].prompt).toContain('{"index":0,"sentence":"I fly a kite."}');
+
+    const scaffold = (await view()).artifacts.find((item) => item.type === "sentence_scaffold");
+    const hints = scaffold?.data.sentences as Array<{ index: number; original: string }>;
+    // The server, not the model, fills in which sentence each ladder is for.
+    expect(hints.map((item) => item.original)).toEqual(sentences);
+
+    const revised = ["I fly a red kite.", sentences[1], sentences[2]];
+    const result = await act({
+      action: "save_sentences",
+      phase: "revision",
+      sentences: revised,
+      hintLevel: 3,
+      hintLevels: [3, 0, 1],
+      idempotencyKey: randomUUID(),
+    });
+    expect(result.status).toBe(200);
+    const saved = (await view()).artifacts.find((item) => item.type === "sentences");
+    expect(saved?.data).toMatchObject({
+      sentences: revised,
+      originals: sentences,
+      hintLevels: [3, 0, 1],
+      hintLevel: 3,
+    });
+  });
+
+  it("refuses a revision whose sentence count no longer matches the originals", async () => {
+    await advanceTo("sentence_scaffold");
+    await act({ action: "save_sentences", phase: "draft", sentences, hintLevel: 0, idempotencyKey: randomUUID() });
+    const result = await act({
+      action: "save_sentences",
+      phase: "revision",
+      sentences: sentences.slice(0, 2),
+      hintLevel: 0,
+      idempotencyKey: randomUUID(),
+    });
+    expect(result.code).toBe("SENTENCES_CHANGED");
+  });
+});
+
 describe("AI review stages", () => {
   it("re-opens concept review when the AI concept map is regenerated", async () => {
     await advanceTo("ai_concept_map");
