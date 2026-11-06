@@ -4657,3 +4657,53 @@ button {
   margin: 2px 0 0;
   font-weight: 700;
 }
+
+/* ==== Print: must stay last ==============================================
+   The redesign's read-only preview rules above come after the first print
+   block, so without these they win when printing: the content kept a
+   "100% - 32px" width with no centering and the page kept its tinted
+   background, leaving everything off-centre with a grey band. */
+@media print {
+  .session-preview-page {
+    padding: 0;
+    background: white !important;
+  }
+
+  .session-preview-content {
+    width: 100% !important;
+    max-width: none;
+    margin: 0 auto !important;
+  }
+
+  .learning-record-title {
+    padding: 0 0 6mm;
+    background: white;
+  }
+
+  .session-metadata {
+    padding: 5mm 0;
+    border-radius: 0;
+    box-shadow: none;
+    break-inside: avoid;
+  }
+
+  .session-readonly-workspace {
+    border-radius: 0;
+    background: white;
+  }
+
+  /* One stage per page; the first stage follows the header on page 1. */
+  .learning-stage + .learning-stage {
+    break-before: page;
+    page-break-before: always;
+  }
+
+  .learning-stage-header {
+    break-after: avoid-page;
+    page-break-after: avoid;
+  }
+
+  .learning-stage-empty {
+    break-before: avoid-page;
+  }
+}
