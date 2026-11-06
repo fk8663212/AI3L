@@ -482,6 +482,26 @@ describe("per-sentence scaffold (stage 6)", () => {
     });
   });
 
+  it("records the sentences once, not again for every hint level opened", async () => {
+    await advanceTo("sentence_scaffold");
+    const save = (body: Record<string, unknown>) =>
+      act({ action: "save_sentences", hintLevel: 0, idempotencyKey: randomUUID(), ...body });
+    await save({ phase: "draft", sentences });
+    await act({ action: "run_ai", stage: "sentence_scaffold" });
+    // Opening levels 1, 2 and 3 on the first sentence, sentences unchanged.
+    for (const level of [1, 2, 3]) {
+      await save({ phase: "revision", sentences, hintLevels: [level, 0, 0], hintLevel: level });
+    }
+    // Then an actual revision.
+    const revised = ["I fly a red kite.", sentences[1], sentences[2]];
+    await save({ phase: "revision", sentences: revised, hintLevels: [3, 0, 0], hintLevel: 3 });
+
+    const messages = (await view()).messages.filter((item) => item.kind === "sentences");
+    expect(messages.map((item) => item.content.sentences)).toEqual([sentences, revised]);
+    const saved = (await view()).artifacts.find((item) => item.type === "sentences");
+    expect(saved?.data.hintLevels).toEqual([3, 0, 0]);
+  });
+
   it("refuses a revision whose sentence count no longer matches the originals", async () => {
     await advanceTo("sentence_scaffold");
     await act({ action: "save_sentences", phase: "draft", sentences, hintLevel: 0, idempotencyKey: randomUUID() });

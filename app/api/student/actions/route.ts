@@ -347,20 +347,31 @@ export async function POST(request: Request) {
               hintLevel: Math.max(body.hintLevel, ...hintLevels),
             },
           });
+          // Opening a hint level re-saves the same sentences to record the
+          // level reached; that belongs in the artifact above, not in a new
+          // copy of the sentences in the learning record.
+          const previousSentences = Array.isArray(previous?.sentences)
+            ? (previous.sentences as string[])
+            : [];
+          const unchanged =
+            previousSentences.length === body.sentences.length &&
+            previousSentences.every((sentence, index) => sentence === body.sentences[index]);
+          if (!unchanged) {
+            await saveMessage({
+              sessionId: claims.sessionId,
+              stageId: "sentence_scaffold",
+              role: "student",
+              kind: "sentences",
+              content: {
+                sentences: body.sentences,
+                hintLevel: body.hintLevel,
+                phase: body.phase ?? "draft",
+                hintLevels: body.hintLevels ?? [],
+              },
+              idempotencyKey: body.idempotencyKey,
+            });
+          }
         }
-        await saveMessage({
-          sessionId: claims.sessionId,
-          stageId: "sentence_scaffold",
-          role: "student",
-          kind: "sentences",
-          content: {
-            sentences: body.sentences,
-            hintLevel: body.hintLevel,
-            phase: body.phase ?? "draft",
-            hintLevels: body.hintLevels ?? [],
-          },
-          idempotencyKey: body.idempotencyKey,
-        });
         break;
       case "complete_stage":
         if (body.stage !== view.session.currentStage) {
