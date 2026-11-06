@@ -5,6 +5,12 @@ import { Mic, Pause, RotateCcw, UploadCloud } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { StageId } from "@/lib/domain/stages";
 import { normalizeAudioMimeType } from "@/lib/domain/recordings";
+import {
+  isSilentRecording,
+  rmsLevel,
+  VOICE_LEVEL_THRESHOLD,
+  type VoiceActivity,
+} from "@/lib/domain/voice-activity";
 import type { SessionView } from "@/lib/services/session-service";
 
 type SavePhase = "idle" | "uploading" | "processing";
@@ -12,6 +18,7 @@ type SavePhase = "idle" | "uploading" | "processing";
 const UPLOAD_TIMEOUT_MS = 120_000;
 const PROCESSING_TIMEOUT_MS = 75_000;
 const RECONCILE_TIMEOUT_MS = 15_000;
+const METER_INTERVAL_MS = 100;
 
 function preferredMimeType(): string {
   const candidates = [
@@ -92,6 +99,14 @@ export function AudioRecorder({
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startedAtRef = useRef(0);
+  const meterRef = useRef<{
+    context: AudioContext;
+    timer: ReturnType<typeof setInterval>;
+    voicedMs: number;
+    peak: number;
+  } | null>(null);
+  const [level, setLevel] = useState(0);
+  const [voice, setVoice] = useState<VoiceActivity | null>(null);
   const [recording, setRecording] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [blob, setBlob] = useState<Blob | null>(null);
@@ -106,18 +121,58 @@ export function AudioRecorder({
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       streamRef.current?.getTracks().forEach((track) => track.stop());
       if (timerRef.current) clearInterval(timerRef.current);
+      stopMeter();
     },
     [previewUrl],
   );
+
+  /** Measures how much of the recording is voiced, so silence is caught here. */
+  function startMeter(stream: MediaStream) {
+    try {
+      const context = new AudioContext();
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 2048;
+      context.createMediaStreamSource(stream).connect(analyser);
+      const samples = new Float32Array(analyser.fftSize);
+      const meter = { context, voicedMs: 0, peak: 0, timer: 0 as unknown as ReturnType<typeof setInterval> };
+      meter.timer = setInterval(() => {
+        analyser.getFloatTimeDomainData(samples);
+        const current = rmsLevel(samples);
+        if (current > VOICE_LEVEL_THRESHOLD) meter.voicedMs += METER_INTERVAL_MS;
+        meter.peak = Math.max(meter.peak, current);
+        setLevel(current);
+      }, METER_INTERVAL_MS);
+      meterRef.current = meter;
+    } catch {
+      // No Web Audio: record without the silence check; the server and the
+      // transcription prompt still refuse to invent speech.
+      meterRef.current = null;
+    }
+  }
+
+  function stopMeter(): VoiceActivity | null {
+    const meter = meterRef.current;
+    meterRef.current = null;
+    setLevel(0);
+    if (!meter) return null;
+    clearInterval(meter.timer);
+    void meter.context.close().catch(() => undefined);
+    return {
+      voicedSeconds: Math.round(meter.voicedMs / 100) / 10,
+      peakLevel: Math.min(1, Math.round(meter.peak * 1000) / 1000),
+    };
+  }
 
   async function start() {
     setError("");
     setBlob(null);
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl("");
+    setVoice(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
+      startMeter(stream);
       const mimeType = preferredMimeType();
       const recorder = new MediaRecorder(
         stream,
@@ -155,6 +210,7 @@ export function AudioRecorder({
     if (recorderRef.current?.state === "recording") {
       recorderRef.current.stop();
     }
+    setVoice(stopMeter());
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = null;
     setRecording(false);
@@ -168,6 +224,7 @@ export function AudioRecorder({
     setSavePhase("idle");
     setUploadProgress(0);
     setError("");
+    setVoice(null);
   }
 
   async function save() {
@@ -226,6 +283,7 @@ export function AudioRecorder({
             stage,
             url: result.url,
             durationSeconds: seconds,
+            ...(voice ? { voice } : {}),
           }),
           signal: processingController.signal,
         });
@@ -271,6 +329,7 @@ export function AudioRecorder({
     }
   }
 
+  const silent = isSilentRecording(voice ?? undefined);
   const busyLabel =
     savePhase === "uploading"
       ? `正在上傳錄音 ${uploadProgress}%`
@@ -324,11 +383,21 @@ export function AudioRecorder({
             </button>
             <button className="button" type="button" onClick={save} disabled={busy}>
               <UploadCloud size={16} />
-              {busy ? busyLabel : "保存錄音"}
+              {busy ? busyLabel : silent ? "仍要保存" : "保存錄音"}
             </button>
           </>
         ) : null}
       </div>
+      {recording ? (
+        <div className="voice-meter" aria-hidden="true">
+          <span style={{ width: `${Math.min(100, Math.round((level / 0.2) * 100))}%` }} />
+        </div>
+      ) : null}
+      {blob && silent ? (
+        <div className="error-banner" role="alert">
+          這段錄音幾乎沒有聽到你的聲音。請確認麥克風沒有靜音、靠近一點，再按「重錄」。沒有聲音的錄音不會產生逐字稿或口說分析。
+        </div>
+      ) : null}
       {busy ? (
         <div className="upload-status" role="status" aria-live="polite">
           {savePhase === "uploading"
