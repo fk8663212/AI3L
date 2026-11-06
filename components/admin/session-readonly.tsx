@@ -357,6 +357,25 @@ function ArtifactBody({
     );
   }
   if (artifact.type === "sentences") {
+    const sentences = stringArray(artifact.data.sentences);
+    const originals = stringArray(artifact.data.originals);
+    const levels = Array.isArray(artifact.data.hintLevels) ? artifact.data.hintLevels : [];
+    if (originals.length === sentences.length && originals.length) {
+      // Stage 6 research data: each sentence before and after its hints.
+      return (
+        <ol className="session-sentence-revisions">
+          {sentences.map((sentence, index) => (
+            <li key={`${index}-${sentence}`}>
+              <small>
+                原句：{originals[index]}
+                {" · "}提示開到第 {typeof levels[index] === "number" ? levels[index] : 0} 級
+              </small>
+              <p>{sentence === originals[index] ? "（沒有修改）" : sentence}</p>
+            </li>
+          ))}
+        </ol>
+      );
+    }
     return (
       <ReadonlyMessageContent
         message={{ role: "student", kind: "sentences", content: artifact.data }}

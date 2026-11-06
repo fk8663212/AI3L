@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { normalizeImageAnalysisOutput } from "@/lib/ai/normalize";
-import { imageAnalysisGenerationSchema } from "@/lib/ai/schemas";
+import {
+  normalizeImageAnalysisOutput,
+  normalizeSentenceScaffoldOutput,
+} from "@/lib/ai/normalize";
+import { imageAnalysisGenerationSchema, sentenceScaffoldSchema } from "@/lib/ai/schemas";
 
 const good = {
   id: "kite",
@@ -52,5 +55,29 @@ describe("normalizeImageAnalysisOutput", () => {
   it("still fails when there is nothing usable", () => {
     const raw = { sceneSummaryZh: "", uncertaintyNote: "", suggestions: [{ labelEn: "" }] };
     expect(imageAnalysisGenerationSchema.safeParse(normalizeImageAnalysisOutput(raw)).success).toBe(false);
+  });
+});
+
+describe("normalizeSentenceScaffoldOutput", () => {
+  const hint = (index: number) => ({
+    index,
+    original: "invented by the model",
+    question: "在哪裡？",
+    keywords: [{ word: "temple", translation: "廟" }, { word: "", translation: "空" }],
+    frame: "I saw ___.",
+    example: { sentence: "I saw a temple.", translation: "我看到廟。" },
+  });
+
+  it("ties each ladder to the student's sentence and drops bad entries", () => {
+    const students = ["i saw horse drawings", "i ate pine apple cake"];
+    const normalized = normalizeSentenceScaffoldOutput(students)({
+      sentences: [hint(1), hint(0), hint(1), hint(7)],
+      transitions: ["Then", "", "Also"],
+    });
+    const parsed = sentenceScaffoldSchema.parse(normalized);
+    expect(parsed.sentences.map((item) => item.index)).toEqual([0, 1]);
+    expect(parsed.sentences.map((item) => item.original)).toEqual(students);
+    expect(parsed.sentences[0].keywords).toEqual([{ word: "temple", translation: "廟" }]);
+    expect(parsed.transitions).toEqual(["Then", "Also"]);
   });
 });

@@ -83,3 +83,46 @@ export function normalizeImageAnalysisOutput(raw: unknown): unknown {
     uncertaintyNote: text(source.uncertaintyNote),
   };
 }
+
+/**
+ * Ties each stage 6 hint ladder to the student's real sentence: the index
+ * decides which sentence it belongs to, the sentence text comes from the
+ * student (never the model), and out-of-range or duplicate entries are
+ * dropped.
+ */
+export function normalizeSentenceScaffoldOutput(studentSentences: readonly string[]) {
+  return (raw: unknown): unknown => {
+    const source = record(raw);
+    if (!source || !Array.isArray(source.sentences)) return raw;
+    const seen = new Set<number>();
+    const sentences = source.sentences
+      .map(record)
+      .filter((item): item is Record<string, unknown> => Boolean(item))
+      .map((item, position) => {
+        const parsed = number(item.index);
+        return { item, index: parsed === null ? position : Math.round(parsed) };
+      })
+      .filter(({ index }) => index >= 0 && index < studentSentences.length && !seen.has(index) && Boolean(seen.add(index)))
+      .sort((left, right) => left.index - right.index)
+      .map(({ item, index }) => {
+        const example = record(item.example) ?? {};
+        return {
+          index,
+          original: studentSentences[index],
+          question: text(item.question),
+          keywords: (Array.isArray(item.keywords) ? item.keywords : [])
+            .map(record)
+            .filter((entry): entry is Record<string, unknown> => Boolean(entry && text(entry.word)))
+            .slice(0, 5)
+            .map((entry) => ({ word: text(entry.word), translation: text(entry.translation) })),
+          frame: text(item.frame),
+          example: { sentence: text(example.sentence), translation: text(example.translation) },
+        };
+      });
+    const transitions = (Array.isArray(source.transitions) ? source.transitions : [])
+      .map(text)
+      .filter(Boolean)
+      .slice(0, 8);
+    return { sentences, transitions };
+  };
+}

@@ -3,12 +3,26 @@
 import { useId } from "react";
 import type { ConceptMap } from "@/lib/ai/schemas";
 
-type PositionedNode = ConceptMap["nodes"][number] & {
+export type PositionedNode = ConceptMap["nodes"][number] & {
   x: number;
   y: number;
 };
 
-function positionedNodes(map: ConceptMap): PositionedNode[] {
+/**
+ * Node positions in percent of the drawing area: the student's own layout
+ * where they dragged a node, the automatic ring layout everywhere else.
+ */
+export function positionedNodes(map: ConceptMap): PositionedNode[] {
+  const auto = autoLayout(map);
+  return auto.map((node) => {
+    const original = map.nodes.find((item) => item.id === node.id);
+    return typeof original?.x === "number" && typeof original?.y === "number"
+      ? { ...node, x: original.x, y: original.y }
+      : node;
+  });
+}
+
+function autoLayout(map: ConceptMap): PositionedNode[] {
   if (map.nodes.length === 0) return [];
   if (map.nodes.length === 1) {
     return [{ ...map.nodes[0], x: 50, y: 50 }];
@@ -55,6 +69,59 @@ function positionedNodes(map: ConceptMap): PositionedNode[] {
   ];
 }
 
+/** Arrows and relation words between positioned nodes. */
+export function ConceptEdgeLayer({
+  nodes,
+  edges,
+}: {
+  nodes: PositionedNode[];
+  edges: ConceptMap["edges"];
+}) {
+  const markerId = `concept-arrow-${useId()}`.replace(/[^a-zA-Z0-9_-]/g, "");
+  const positionById = new Map(nodes.map((node) => [node.id, node]));
+  return (
+    <svg
+      className="concept-edge-layer"
+      viewBox="0 0 100 100"
+      preserveAspectRatio="none"
+      aria-hidden="true"
+    >
+      <defs>
+        <marker
+          id={markerId}
+          markerWidth="4"
+          markerHeight="4"
+          refX="3.1"
+          refY="2"
+          orient="auto"
+          markerUnits="strokeWidth"
+        >
+          <path d="M0,0 L4,2 L0,4 Z" />
+        </marker>
+      </defs>
+      {edges.map((edge) => {
+        const from = positionById.get(edge.from);
+        const to = positionById.get(edge.to);
+        if (!from || !to) return null;
+        return (
+          <g className={edge.source === "ai" ? "ai" : "student"} key={edge.id}>
+            <line
+              x1={from.x}
+              y1={from.y}
+              x2={to.x}
+              y2={to.y}
+              markerEnd={`url(#${markerId})`}
+            />
+            <text x={(from.x + to.x) / 2} y={(from.y + to.y) / 2 - 1.2}>
+              {edge.relationEn}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
 export function ConceptMapCard({
   map,
   title = "概念圖",
@@ -62,12 +129,7 @@ export function ConceptMapCard({
   map: ConceptMap;
   title?: string;
 }) {
-  const markerId = `concept-arrow-${useId()}`.replace(
-    /[^a-zA-Z0-9_-]/g,
-    "",
-  );
   const nodes = positionedNodes(map);
-  const positionById = new Map(nodes.map((node) => [node.id, node]));
 
   return (
     <div className="artifact-card concept-map-card">
@@ -79,50 +141,7 @@ export function ConceptMapCard({
       </div>
       <div className="artifact-card-body">
         <div className="concept-graph" role="img" aria-label={title}>
-          <svg
-            className="concept-edge-layer"
-            viewBox="0 0 100 100"
-            preserveAspectRatio="none"
-            aria-hidden="true"
-          >
-            <defs>
-              <marker
-                id={markerId}
-                markerWidth="4"
-                markerHeight="4"
-                refX="3.1"
-                refY="2"
-                orient="auto"
-                markerUnits="strokeWidth"
-              >
-                <path d="M0,0 L4,2 L0,4 Z" />
-              </marker>
-            </defs>
-            {map.edges.map((edge) => {
-              const from = positionById.get(edge.from);
-              const to = positionById.get(edge.to);
-              if (!from || !to) return null;
-              const middleX = (from.x + to.x) / 2;
-              const middleY = (from.y + to.y) / 2;
-              return (
-                <g
-                  className={edge.source === "ai" ? "ai" : "student"}
-                  key={edge.id}
-                >
-                  <line
-                    x1={from.x}
-                    y1={from.y}
-                    x2={to.x}
-                    y2={to.y}
-                    markerEnd={`url(#${markerId})`}
-                  />
-                  <text x={middleX} y={middleY - 1.2}>
-                    {edge.relationEn}
-                  </text>
-                </g>
-              );
-            })}
-          </svg>
+<ConceptEdgeLayer nodes={nodes} edges={map.edges} />
 
           {nodes.map((node) => (
             <div
