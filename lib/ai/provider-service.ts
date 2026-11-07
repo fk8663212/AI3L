@@ -300,7 +300,9 @@ export async function runStageAI(
       );
     }
     schemaName = "sentence_scaffold";
-    schema = sentenceScaffoldSchema;
+    schema = sentenceScaffoldSchema.extend({
+      sentences: sentenceScaffoldSchema.shape.sentences.length(studentSentences.length),
+    });
     prompt = sentenceScaffoldPrompt(
       {
         taskTitle: context.task.title,
@@ -347,7 +349,7 @@ export async function runStageAI(
     if (stage === "sentence_scaffold") {
       // Whatever the provider: each ladder belongs to the student's real
       // sentence, never to text the model wrote into "original".
-      result.value = sentenceScaffoldSchema.parse(
+      result.value = schema.parse(
         normalizeSentenceScaffoldOutput(scaffoldSentences)(result.value),
       );
     }
@@ -496,7 +498,9 @@ export async function runStageAI(
               (providerStatus === 404 ||
                 normalizedError.includes("not found"))
             ? "目前設定的 AI 模型無法使用，請通知管理員檢查模型設定。"
-            : "AI 分析暫時失敗，請稍後重試。";
+            : stage === "sentence_scaffold" && normalizedError.includes("unusable")
+              ? "AI 這次未能產生完整提示。你的句子已保存，可以再試一次。"
+              : "AI 分析暫時失敗，請稍後重試。";
     throw new ApiError(
       502,
       "AI_PROVIDER_FAILED",

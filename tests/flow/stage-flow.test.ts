@@ -444,6 +444,18 @@ describe("editing the concept map (stage 5)", () => {
 });
 
 describe("per-sentence scaffold (stage 6)", () => {
+  it("keeps the draft and rejects hints that omit a student's sentence", async () => {
+    await advanceTo("sentence_scaffold");
+    await act({ action: "save_sentences", phase: "draft", sentences, hintLevel: 0, idempotencyKey: randomUUID() });
+    const incomplete = sentenceScaffoldOutput();
+    incomplete.sentences = incomplete.sentences.slice(0, 1);
+    ai.generateStructured.mockResolvedValueOnce({ value: incomplete });
+    expect((await act({ action: "run_ai", stage: "sentence_scaffold" })).code).toBe("AI_PROVIDER_FAILED");
+    const current = await view();
+    expect(current.artifacts.find((item) => item.type === "sentences")?.data.originals).toEqual(sentences);
+    expect(current.artifacts.some((item) => item.type === "sentence_scaffold")).toBe(false);
+  });
+
   it("builds one hint ladder per student sentence and keeps the originals", async () => {
     await advanceTo("sentence_scaffold");
     await act({

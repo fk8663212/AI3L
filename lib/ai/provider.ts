@@ -215,93 +215,75 @@ async function generateGoogle<T>(
     | { inlineData: { data: string; mimeType: string } }
   > => [{ text: prompt }, ...imageParts];
 
-  let response;
-  try {
-    response = await client.models.generateContent({
+  // Retry unusable output once, with the same provider/model and a stricter
+  // formatting instruction. Never retry key, quota, safety or transport errors.
+  const deadline = Date.now() + AI_REQUEST_TIMEOUT_MS;
+  let useSchema = true;
+  let inputTokens: number | undefined;
+  let outputTokens: number | undefined;
+  const schemaPrompt = `${input.prompt}\n\nReturn one complete JSON object matching this schema exactly. Escape quotation marks inside strings. Do not include Markdown or explanations.\n${JSON.stringify(schema)}`;
+
+  async function request(prompt: string) {
+    const timeout = deadline - Date.now();
+    if (timeout <= 0) throw new Error("Gemini structured output timed out.");
+    return client.models.generateContent({
       model: input.modelId,
-      contents: [{ role: "user", parts: partsForPrompt(input.prompt) }],
+      contents: [{ role: "user", parts: partsForPrompt(prompt) }],
       config: {
+        httpOptions: { timeout },
         systemInstruction: input.system,
         responseMimeType: "application/json",
-        responseJsonSchema: schema,
-        maxOutputTokens: GOOGLE_MAX_OUTPUT_TOKENS,
-        thinkingConfig: {
-          thinkingLevel: ThinkingLevel.LOW,
-        },
-      },
-    });
-  } catch (error) {
-    const status =
-      typeof error === "object" &&
-      error &&
-      "status" in error &&
-      typeof error.status === "number"
-        ? error.status
-        : undefined;
-    const message =
-      error instanceof Error ? error.message.toLowerCase() : "";
-    const invalidSchemaRequest =
-      status === 400 &&
-      (message.includes("invalid_argument") ||
-        message.includes("invalid argument"));
-    if (!invalidSchemaRequest) throw error;
-
-    const compatibilityPrompt = `${input.prompt}
-
-Return only JSON matching this schema exactly:
-${JSON.stringify(schema)}`;
-    response = await client.models.generateContent({
-      model: input.modelId,
-      contents: [
-        { role: "user", parts: partsForPrompt(compatibilityPrompt) },
-      ],
-      config: {
-        systemInstruction: input.system,
-        responseMimeType: "application/json",
+        ...(useSchema ? {
+          responseJsonSchema: schema,
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+        } : {}),
         maxOutputTokens: GOOGLE_MAX_OUTPUT_TOKENS,
       },
     });
   }
-  const finishReason = response.candidates?.[0]?.finishReason;
-  if (!response.text) {
-    throw new Error(
-      `Gemini returned no structured output${
-        finishReason ? ` (finish reason: ${finishReason})` : ""
-      }.`,
-    );
-  }
 
-  let value: T;
-  try {
-    const raw: unknown = JSON.parse(cleanJson(response.text));
-    value = input.schema.parse(input.normalize ? input.normalize(raw) : raw);
-  } catch (error) {
-    // Say why in the logs and ai_runs: truncated output and schema mismatches
-    // otherwise both surface as a bare SyntaxError or ZodError.
-    const detail =
-      error instanceof z.ZodError
-        ? error.issues
-            .slice(0, 5)
-            .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
-            .join("; ")
-        : error instanceof Error
-          ? error.message
-          : String(error);
-    throw new Error(
-      `Gemini output for ${input.schemaName} was unusable${
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let response;
+    try {
+      response = await request(attempt === 0 && useSchema ? input.prompt : schemaPrompt);
+    } catch (error) {
+      const status = typeof error === "object" && error && "status" in error ? error.status : undefined;
+      const message = error instanceof Error ? error.message.toLowerCase() : "";
+      if (!useSchema || status !== 400 || (!message.includes("invalid_argument") && !message.includes("invalid argument"))) throw error;
+      useSchema = false;
+      response = await request(schemaPrompt);
+    }
+    const usage = response.usageMetadata;
+    if (usage?.promptTokenCount !== undefined) inputTokens = (inputTokens ?? 0) + usage.promptTokenCount;
+    if (usage?.candidatesTokenCount !== undefined) outputTokens = (outputTokens ?? 0) + usage.candidatesTokenCount;
+    const finishReason = response.candidates?.[0]?.finishReason;
+    if (finishReason && finishReason !== "STOP" && finishReason !== "MAX_TOKENS") {
+      throw new Error(`Gemini did not complete structured output (finish reason: ${finishReason}).`);
+    }
+    if (!response.text && finishReason !== "MAX_TOKENS") {
+      throw new Error("Gemini returned no structured output.");
+    }
+
+    try {
+      if (finishReason === "MAX_TOKENS") throw new Error("Output exceeded the token limit.");
+      const raw: unknown = JSON.parse(cleanJson(response.text!));
+      const value = input.schema.parse(input.normalize ? input.normalize(raw) : raw);
+      return {
+        value,
+        providerResponseId: response.responseId,
+        usage: { inputTokens, outputTokens },
+      };
+    } catch (error) {
+      if (attempt === 0) continue;
+      const detail = error instanceof z.ZodError
+        ? error.issues.slice(0, 5).map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")
+        : error instanceof Error ? error.message : String(error);
+      throw new Error(`Gemini output for ${input.schemaName} was unusable after 2 attempts${
         finishReason && finishReason !== "STOP" ? ` (finish reason: ${finishReason})` : ""
-      }: ${detail}`.slice(0, 500),
-    );
+      }: ${detail}`.slice(0, 500));
+    }
   }
-
-  return {
-    value,
-    providerResponseId: response.responseId,
-    usage: {
-      inputTokens: response.usageMetadata?.promptTokenCount,
-      outputTokens: response.usageMetadata?.candidatesTokenCount,
-    },
-  };
+  throw new Error("Gemini returned no usable structured output.");
 }
 
 export async function generateStructured<T>(

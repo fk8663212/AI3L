@@ -932,6 +932,7 @@ function SentencePanel({
   // rewrites their original sentences, the old hints no longer apply.
   const hintsMatch =
     parsedScaffold.success &&
+    parsedScaffold.data.sentences.length === originals.length &&
     parsedScaffold.data.sentences.every((item) => originals[item.index] === item.original);
   const scaffoldReady = parsedScaffold.success && hintsMatch && originals.length >= 3;
   const hintByIndex = new Map(

@@ -197,8 +197,8 @@ function AudioArtifact({
           <audio controls src={artifact.downloadUrl}>
             <track kind="captions" />
           </audio>
-          <a className="session-audio-link" href={artifact.downloadUrl}>
-            登入後台後開啟錄音
+          <a className="session-audio-link" href={`${artifact.downloadUrl}?download=1`}>
+            下載錄音
           </a>
         </>
       ) : null}

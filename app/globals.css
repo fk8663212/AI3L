@@ -1171,6 +1171,11 @@ button {
   font-weight: 800;
 }
 
+.microphone-selector { margin: 0 0 12px; }
+.microphone-meter { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; color: var(--ink-soft); font-size: .85rem; }
+.microphone-meter meter { flex: 1; min-width: 100px; max-width: 240px; height: 16px; }
+.microphone-meter small { overflow-wrap: anywhere; }
+
 .upload-status {
   margin-top: 10px;
   color: var(--ink-soft);

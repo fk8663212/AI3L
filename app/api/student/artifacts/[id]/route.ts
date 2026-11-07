@@ -7,9 +7,10 @@ import { STAGE_IDS } from "@/lib/domain/stages";
 import { apiErrorResponse, ApiError } from "@/lib/security/request";
 import { getStudentClaims } from "@/lib/security/session";
 import { getDriveFileStream } from "@/lib/storage/google-drive";
+import { privateFileResponse } from "@/lib/storage/file-response";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
   try {
@@ -57,12 +58,9 @@ export async function GET(
 
     if (artifact.storageProvider === "google-drive") {
       const file = await getDriveFileStream(artifact.storageLocator);
-      return new Response(file.stream as unknown as BodyInit, {
-        headers: {
-          "content-type": file.mimeType,
-          "content-disposition": `inline; filename="${encodeURIComponent(file.name)}"`,
-          "cache-control": "private, no-store",
-        },
+      return privateFileResponse(request, {
+        stream: file.stream as ReadableStream<Uint8Array>,
+        size: file.size ? Number(file.size) : undefined, contentType: file.mimeType, filename: file.name,
       });
     }
 
@@ -70,12 +68,9 @@ export async function GET(
     if (!blob || blob.statusCode === 304 || !blob.stream) {
       throw new ApiError(404, "BLOB_NOT_FOUND", "找不到 Blob 檔案。");
     }
-    return new Response(blob.stream, {
-      headers: {
-        "content-type": blob.blob.contentType,
-        etag: blob.blob.etag,
-        "cache-control": "private, max-age=300",
-      },
+    return privateFileResponse(request, {
+      stream: blob.stream, size: blob.blob.size, contentType: blob.blob.contentType,
+      filename: blob.blob.pathname.split("/").at(-1) || "recording", etag: blob.blob.etag,
     });
   } catch (error) {
     return apiErrorResponse(error);
