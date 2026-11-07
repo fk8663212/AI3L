@@ -3387,6 +3387,10 @@ button {
   gap: 20px;
 }
 
+.student-shell .chat-column[data-stage="ai_concept_map"] {
+  width: min(100%, 1560px);
+}
+
 .stage-intro {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
@@ -4325,8 +4329,40 @@ button {
   gap: 14px;
 }
 
+.concept-review-panel {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+}
+
 .concept-review-panel .review-list {
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 1280px) {
+  .concept-review-panel {
+    grid-template-columns: minmax(0, 1fr) 300px;
+  }
+
+  .concept-review-decisions .review-list {
+    max-height: min(560px, calc(100dvh - 360px));
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scrollbar-gutter: stable;
+  }
+
+  .concept-review-decisions .review-item {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .concept-review-decisions .review-item-text strong {
+    font-size: 0.95rem;
+    overflow-wrap: anywhere;
+  }
+
+  .concept-review-decisions .decision-group {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .ai-note {
@@ -4718,6 +4754,8 @@ button {
    "100% - 32px" width with no centering and the page kept its tinted
    background, leaving everything off-centre with a grey band. */
 @media print {
+  .concept-review-panel { grid-template-columns: minmax(0, 1fr); }
+  .concept-review-decisions .review-list { max-height: none; overflow: visible; }
   .session-preview-page {
     padding: 0;
     background: white !important;

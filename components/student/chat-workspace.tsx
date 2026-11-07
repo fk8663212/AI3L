@@ -708,15 +708,15 @@ function AIConceptPanel({
 
   return (
     <div className="stage-panel panel-columns concept-review-panel">
-      <div className="panel-wide">
+      <div className="panel-column concept-review-preview">
       <StepHeading step={1} title="比較 AI 的擴充概念圖" done />
       <ConceptMapCard map={{ nodes: keptNodes, edges: keptEdges }} title="擴充概念圖（預覽你的選擇）" />
       </div>
 
-      <div className="panel-wide">
-      <StepHeading step={2} title="每個 AI 新增的項目都要決定：保留或移除" done={reviewed} />
-      <p className="panel-hint">藍色是你原有的概念與關係，橘色是 AI 新增的。只保留符合你經驗的內容；移除概念時，連到它的關係也會一起移除。</p>
-      <div className="review-list">
+      <div className="panel-column concept-review-decisions">
+      <StepHeading step={2} title="審核 AI 新增的概念與關係" done={reviewed} />
+      <p className="panel-hint">逐項保留或移除，概念圖會同步更新。藍色是你原有的，橘色是 AI 新增的；移除概念時，相連關係也會一起移除。</p>
+      <div className="review-list" tabIndex={0} role="region" aria-label="AI 新增項目審核清單">
         {aiItems.map((item) => {
           const isNode = "labelEn" in item;
           const followsNode = orphaned(item);
@@ -1276,7 +1276,7 @@ export function ChatWorkspace({ initialView }: { initialView: SessionView }) {
         </header>
 
         <div className="chat-scroll" ref={mainRef}>
-          <div className="chat-column">
+          <div className="chat-column" data-stage={stage}>
             {view.session.completed ? (
               <div className="completion-card">
                 <span className="completion-icon">
