@@ -32,6 +32,8 @@
 
 使用本機 PostgreSQL 與私有檔案目錄，網站、圖片與錄音保存不需要 Vercel、Neon 或 Google Drive 帳號。AI 分析仍需在後台設定 Gemini／OpenAI API Key。
 
+Docker 正式建置使用 Next.js 的 Webpack 建置器，避開本專案遇到的 Turbopack Google 字型 URL 解析錯誤；啟動步驟相同。
+
 需求：Node.js 22、已啟動的 Docker Desktop／Docker Engine、Docker Compose v2。
 
 在專案根目錄執行：
