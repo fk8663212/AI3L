@@ -5,6 +5,7 @@ import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import type { ConceptMap } from "@/lib/ai/schemas";
 import {
   ConceptEdgeLayer,
+  ConceptMapCanvas,
   positionedNodes,
   type PositionedNode,
 } from "@/components/student/concept-map-card";
@@ -183,7 +184,8 @@ export function ConceptMapEditor({
       </p>
       <div className="artifact-card concept-map-card">
         <div className="artifact-card-body">
-          <div className="concept-graph editable" ref={graphRef}>
+          <div className="concept-graph editable" tabIndex={0} aria-label="可拖曳編輯的概念圖">
+            <ConceptMapCanvas nodeCount={nodes.length} planeRef={graphRef}>
             <ConceptEdgeLayer nodes={nodes} edges={edges} />
             {nodes.map((node) => (
               <div
@@ -211,6 +213,7 @@ export function ConceptMapEditor({
                 {node.source === "ai" ? <em>AI 新增</em> : null}
               </div>
             ))}
+            </ConceptMapCanvas>
           </div>
         </div>
       </div>

@@ -707,15 +707,15 @@ function AIConceptPanel({
   const locked = reviewed && !editing;
 
   return (
-    <div className="stage-panel panel-columns">
-      <div className="panel-column">
+    <div className="stage-panel panel-columns concept-review-panel">
+      <div className="panel-wide">
       <StepHeading step={1} title="比較 AI 的擴充概念圖" done />
       <ConceptMapCard map={{ nodes: keptNodes, edges: keptEdges }} title="擴充概念圖（預覽你的選擇）" />
       </div>
 
-      <div className="panel-column">
+      <div className="panel-wide">
       <StepHeading step={2} title="每個 AI 新增的項目都要決定：保留或移除" done={reviewed} />
-      <p className="panel-hint">橘色是 AI 新增的。只保留符合你經驗的內容；移除概念時，連到它的關係也會一起移除。</p>
+      <p className="panel-hint">藍色是你原有的概念與關係，橘色是 AI 新增的。只保留符合你經驗的內容；移除概念時，連到它的關係也會一起移除。</p>
       <div className="review-list">
         {aiItems.map((item) => {
           const isNode = "labelEn" in item;

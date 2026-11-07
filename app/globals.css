@@ -991,17 +991,50 @@ button {
   background: var(--ink);
 }
 
+.concept-map-card {
+  width: 100%;
+  min-width: 0;
+}
+
 .concept-graph {
   position: relative;
   width: 100%;
   height: clamp(480px, 62vw, 680px);
-  overflow: hidden;
+  overflow: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--line);
   border-radius: 15px;
   background:
     linear-gradient(90deg, rgba(213, 220, 231, 0.14) 1px, transparent 1px),
     linear-gradient(rgba(213, 220, 231, 0.14) 1px, transparent 1px);
   background-size: 18px 18px;
+}
+
+.concept-map-hint {
+  margin: 0 0 10px;
+  color: var(--ink-soft);
+  font-size: 0.8rem;
+}
+
+.concept-map-canvas {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.concept-map-plane {
+  position: absolute;
+  inset: 76px;
+}
+
+.concept-map-canvas[data-spacious="false"] .concept-map-plane {
+  inset: 0;
+}
+
+.concept-map-canvas[data-spacious="true"] .concept-node {
+  width: 142px;
+  padding: 9px 10px;
+  font-size: 0.95rem;
 }
 
 .concept-edge-layer {
@@ -1014,26 +1047,26 @@ button {
 }
 
 .concept-edge-layer marker path {
-  fill: #768092;
+  fill: var(--brand);
+}
+
+.concept-edge-layer marker.ai path {
+  fill: var(--ai);
 }
 
 .concept-edge-layer line {
-  stroke: #768092;
+  stroke: var(--brand);
   stroke-width: 0.45;
   vector-effect: non-scaling-stroke;
 }
 
 .concept-edge-layer g.ai line {
-  stroke: #e8590c;
+  stroke: var(--ai);
   stroke-dasharray: 2 1.4;
 }
 
-.concept-edge-layer g.ai marker path {
-  fill: #e8590c;
-}
-
 .concept-edge-layer text {
-  fill: #4c5668;
+  fill: var(--brand-dark);
   stroke: rgba(255, 255, 255, 0.96);
   stroke-width: 0.75;
   paint-order: stroke;
@@ -1044,7 +1077,7 @@ button {
 }
 
 .concept-edge-layer g.ai text {
-  fill: #806019;
+  fill: var(--ai-text);
 }
 
 .concept-node {
@@ -1059,13 +1092,14 @@ button {
   border: 2px solid var(--brand);
   border-radius: 14px;
   text-align: center;
-  background: white;
+  background: var(--brand-soft);
+  overflow-wrap: anywhere;
   box-shadow: 0 7px 16px rgba(15, 23, 42, 0.08);
 }
 
 .concept-node.ai {
-  border-color: var(--gold);
-  background: #fff8f2;
+  border-color: var(--ai);
+  background: var(--ai-soft);
 }
 
 .concept-node small {
@@ -1077,7 +1111,7 @@ button {
 
 .concept-node em {
   margin-top: 4px;
-  color: #8a681d;
+  color: var(--ai-text);
   font-size: 0.58rem;
   font-style: normal;
   font-weight: 850;
@@ -1092,20 +1126,31 @@ button {
 }
 
 .concept-map-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 5px 8px;
   border-radius: 999px;
   font-size: 0.68rem;
   font-weight: 750;
 }
 
+.concept-map-legend span::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: currentColor;
+}
+
 .concept-map-legend span.student {
-  color: #8b352b;
-  background: #f9e5e1;
+  color: var(--brand);
+  background: var(--brand-soft);
 }
 
 .concept-map-legend span.ai {
-  color: #745514;
-  background: var(--gold-soft);
+  color: var(--ai);
+  background: var(--ai-soft);
 }
 
 .edge-list {
@@ -4280,6 +4325,10 @@ button {
   gap: 14px;
 }
 
+.concept-review-panel .review-list {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+}
+
 .ai-note {
   padding: 14px 16px;
   display: flex;
@@ -4750,3 +4799,14 @@ button {
 .outline-concepts label { display: inline-flex; align-items: center; gap: 6px; font-size: .85rem; }
 @media (max-width: 760px) { .micro-workspace, .outline-edit-fields { grid-template-columns: minmax(0, 1fr); } .outline-edit-actions { justify-content: flex-end; } }
 @media print { .speaking-view-switch, .speaking-outline-footer, .outline-editor { display: none !important; } .macro-sequence { flex-wrap: wrap; overflow: visible; } .micro-workspace { display: block; } }
+
+@media print {
+  .concept-map-hint { display: none; }
+  .concept-map-canvas { min-width: 0 !important; min-height: 100% !important; }
+  .concept-map-plane { inset: 60px; }
+  .concept-map-canvas[data-spacious="true"] .concept-node {
+    width: 100px;
+    padding: 6px;
+    font-size: 10px;
+  }
+}

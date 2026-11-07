@@ -1,6 +1,6 @@
 "use client";
 
-import { useId } from "react";
+import { useId, type ReactNode, type Ref } from "react";
 import type { ConceptMap } from "@/lib/ai/schemas";
 
 export type PositionedNode = ConceptMap["nodes"][number] & {
@@ -40,33 +40,56 @@ function autoLayout(map: ConceptMap): PositionedNode[] {
     degree.set(edge.to, (degree.get(edge.to) ?? 0) + 1);
   }
   const central = [...map.nodes].sort(
-    (left, right) =>
-      (degree.get(right.id) ?? 0) - (degree.get(left.id) ?? 0),
+    (left, right) => (degree.get(right.id) ?? 0) - (degree.get(left.id) ?? 0),
   )[0];
   const surrounding = map.nodes.filter((node) => node.id !== central.id);
 
   return [
     { ...central, x: 50, y: 50 },
     ...surrounding.map((node, index) => {
-      const ring = Math.floor(index / 8);
-      const ringStart = ring * 8;
-      const itemsInRing = Math.min(8, surrounding.length - ringStart);
-      const positionInRing = index - ringStart;
       // With an even count, start half a step off the vertical so nodes sit
       // on the diagonals instead of directly beside the centre node, where
       // they overlapped it on narrower screens.
-      const offset = itemsInRing % 2 === 0 ? Math.PI / itemsInRing : 0;
+      const offset =
+        surrounding.length > 2 && surrounding.length % 2 === 0
+          ? Math.PI / surrounding.length
+          : 0;
       const angle =
-        -Math.PI / 2 + offset + (positionInRing / itemsInRing) * Math.PI * 2;
-      const radiusX = Math.min(40, 36 + ring * 4);
-      const radiusY = Math.min(42, 36 + ring * 6);
+        -Math.PI / 2 + offset + (index / surrounding.length) * Math.PI * 2;
       return {
         ...node,
-        x: 50 + Math.cos(angle) * radiusX,
-        y: 50 + Math.sin(angle) * radiusY,
+        x: 50 + Math.cos(angle) * 44,
+        y: 50 + Math.sin(angle) * 44,
       };
     }),
   ];
+}
+
+/** Reserve room for labels, while letting crowded maps scroll inside the card. */
+export function ConceptMapCanvas({
+  nodeCount,
+  children,
+  planeRef,
+}: {
+  nodeCount: number;
+  children: ReactNode;
+  planeRef?: Ref<HTMLDivElement>;
+}) {
+  const spacious = nodeCount > 2 || Boolean(planeRef);
+  return (
+    <div
+      className="concept-map-canvas"
+      data-spacious={spacious}
+      style={{
+        minWidth: spacious ? Math.max(640, (nodeCount - 1) * 96) : "100%",
+        minHeight: spacious ? Math.max(480, (nodeCount - 1) * 64) : "100%",
+      }}
+    >
+      <div className="concept-map-plane" ref={planeRef}>
+        {children}
+      </div>
+    </div>
+  );
 }
 
 /** Arrows and relation words between positioned nodes. */
@@ -87,17 +110,21 @@ export function ConceptEdgeLayer({
       aria-hidden="true"
     >
       <defs>
-        <marker
-          id={markerId}
-          markerWidth="4"
-          markerHeight="4"
-          refX="3.1"
-          refY="2"
-          orient="auto"
-          markerUnits="strokeWidth"
-        >
-          <path d="M0,0 L4,2 L0,4 Z" />
-        </marker>
+        {(["student", "ai"] as const).map((source) => (
+          <marker
+            key={source}
+            id={`${markerId}-${source}`}
+            className={source}
+            markerWidth="4"
+            markerHeight="4"
+            refX="3.1"
+            refY="2"
+            orient="auto"
+            markerUnits="strokeWidth"
+          >
+            <path d="M0,0 L4,2 L0,4 Z" />
+          </marker>
+        ))}
       </defs>
       {edges.map((edge) => {
         const from = positionById.get(edge.from);
@@ -110,7 +137,7 @@ export function ConceptEdgeLayer({
               y1={from.y}
               x2={to.x}
               y2={to.y}
-              markerEnd={`url(#${markerId})`}
+              markerEnd={`url(#${markerId}-${edge.source})`}
             />
             <text x={(from.x + to.x) / 2} y={(from.y + to.y) / 2 - 1.2}>
               {edge.relationEn}
@@ -140,21 +167,33 @@ export function ConceptMapCard({
         </small>
       </div>
       <div className="artifact-card-body">
-        <div className="concept-graph" role="img" aria-label={title}>
-<ConceptEdgeLayer nodes={nodes} edges={map.edges} />
+        {nodes.length > 2 ? (
+          <p className="concept-map-hint">
+            可在圖內左右、上下捲動，查看完整概念圖。
+          </p>
+        ) : null}
+        <div
+          className="concept-graph"
+          role="img"
+          aria-label={title}
+          tabIndex={nodes.length > 2 ? 0 : undefined}
+        >
+          <ConceptMapCanvas nodeCount={nodes.length}>
+            <ConceptEdgeLayer nodes={nodes} edges={map.edges} />
 
-          {nodes.map((node) => (
-            <div
-              className={`concept-node ${node.source === "ai" ? "ai" : "student"}`}
-              data-category={node.category}
-              key={node.id}
-              style={{ left: `${node.x}%`, top: `${node.y}%` }}
-            >
-              <strong>{node.labelEn}</strong>
-              <small>{node.labelZh}</small>
-              {node.source === "ai" ? <em>AI 新增</em> : null}
-            </div>
-          ))}
+            {nodes.map((node) => (
+              <div
+                className={`concept-node ${node.source === "ai" ? "ai" : "student"}`}
+                data-category={node.category}
+                key={node.id}
+                style={{ left: `${node.x}%`, top: `${node.y}%` }}
+              >
+                <strong>{node.labelEn}</strong>
+                <small>{node.labelZh}</small>
+                {node.source === "ai" ? <em>AI 新增</em> : null}
+              </div>
+            ))}
+          </ConceptMapCanvas>
         </div>
 
         <div className="concept-map-legend">
@@ -168,8 +207,7 @@ export function ConceptMapCard({
             return (
               <div className={edge.source} key={edge.id}>
                 {from?.labelEn ?? edge.from}{" "}
-                <strong>— {edge.relationEn} →</strong>{" "}
-                {to?.labelEn ?? edge.to}
+                <strong>— {edge.relationEn} →</strong> {to?.labelEn ?? edge.to}
               </div>
             );
           })}
