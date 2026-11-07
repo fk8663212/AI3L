@@ -103,7 +103,7 @@ test.describe("Macro / Micro in the learning workspace", () => {
   let db: Pool;
   let taskId: string;
   let sessionId: string;
-  test.beforeAll(async () => {
+  test.beforeEach(async () => {
     test.skip(
       !process.env.DATABASE_URL || !process.env.AUTH_SECRET,
       "Local database and auth settings are required.",
@@ -181,7 +181,7 @@ test.describe("Macro / Micro in the learning workspace", () => {
       })),
     });
   });
-  test.afterAll(async () => {
+  test.afterEach(async () => {
     if (!db) return;
     try {
       if (taskId) {
