@@ -1,5 +1,8 @@
 "use client";
 
+import { SpeakingOutlinePanel } from "@/components/student/speaking-outline-panel";
+import { validSpeakingOutline } from "@/lib/domain/speaking-outline";
+
 import {
   Check,
   CheckCircle2,
@@ -805,6 +808,7 @@ function AIConceptPanel({
           />
         </div>
       ) : null}
+      {locked ? <div className="panel-wide"><SpeakingOutlinePanel view={view} perform={perform} /></div> : null}
     </div>
   );
 }
@@ -934,7 +938,11 @@ function SentencePanel({
     parsedScaffold.success &&
     parsedScaffold.data.sentences.length === originals.length &&
     parsedScaffold.data.sentences.every((item) => originals[item.index] === item.original);
-  const scaffoldReady = parsedScaffold.success && hintsMatch && originals.length >= 3;
+  const finalMap = conceptMapSchema.safeParse(artifact(view, "ai_concept_map", "concept_decisions")?.data.accepted);
+  const outlineArtifact = artifact(view, "ai_concept_map", "speaking_outline");
+  const outline = finalMap.success ? validSpeakingOutline(outlineArtifact?.data, finalMap.data) : null;
+  const outlineMatches = !outline || scaffold?.data.speakingOutlineId === outlineArtifact?.id;
+  const scaffoldReady = parsedScaffold.success && hintsMatch && outlineMatches && originals.length >= 3;
   const hintByIndex = new Map(
     parsedScaffold.success ? parsedScaffold.data.sentences.map((item) => [item.index, item]) : [],
   );
@@ -961,7 +969,7 @@ function SentencePanel({
 
   async function saveDraftAndGetHints() {
     setRequesting(true);
-    const afterSave = await perform({
+    const afterSave = savedSentences.length >= 3 && sameList(draftSentences, originals) ? view : await perform({
       action: "save_sentences",
       phase: "draft",
       sentences: draftSentences,
@@ -998,6 +1006,7 @@ function SentencePanel({
 
   return (
     <div className="stage-panel">
+      <SpeakingOutlinePanel view={view} perform={perform} hintsReady={scaffoldReady && !rewriting} />
       <StepHeading step={1} title="先寫下至少 3 個自己的英文句子" done={scaffoldReady && !rewriting} />
       {writing ? (
         <>

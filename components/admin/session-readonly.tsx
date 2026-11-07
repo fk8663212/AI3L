@@ -1,3 +1,5 @@
+import { MacroMicroCard } from "@/components/student/speaking-outline-panel";
+import { outlineSourceMap, validSpeakingOutline } from "@/lib/domain/speaking-outline";
 import { Lock, ShieldCheck } from "lucide-react";
 import {
   annotatedImageSchema,
@@ -70,6 +72,8 @@ function JsonFallback({ value }: { value: Record<string, unknown> }) {
 }
 
 function ReadonlyMessageContent({ message }: { message: ReadonlyMessage }) {
+  if (message.kind === "speaking_navigation") return <p>瀏覽段落：{String(message.content.sectionTitle ?? message.content.sectionId)} · {message.content.mode === "single" ? "單層概念圖" : "Macro／Micro 雙層圖"} · {message.content.hintsVisible ? "顯示英文提示" : "未顯示英文提示"}</p>;
+  if (["speaking_outline", "speaking_outline_edit"].includes(message.kind) && Array.isArray(message.content.sections)) return <ol>{message.content.sections.map((section: { id: string; titleZh: string; titleEn: string }) => <li key={section.id}>{section.titleZh} · {section.titleEn}</li>)}</ol>;
   if (message.kind === "labels") {
     return (
       <div className="chip-list">
@@ -279,6 +283,8 @@ function artifactTitle(type: string): string {
       concept_decisions: "概念審核結果",
       sentences: "學生句子",
       sentence_scaffold: "句子鷹架",
+      speaking_outline: "Macro／Micro 講述架構",
+      speaking_progress: "講述段落與提示瀏覽紀錄",
     }[type] ?? type
   );
 }
@@ -299,6 +305,15 @@ function ArtifactBody({
       />
     );
   }
+  if (artifact.type === "speaking_outline") {
+    const map = outlineSourceMap(artifact.data);
+    const outline = map ? validSpeakingOutline(artifact.data, map) : null;
+    if (map && outline) {
+      const scaffold = allArtifacts.filter((item) => item.type === "sentence_scaffold" && item.data.speakingOutlineId === artifact.id).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
+      return <MacroMicroCard map={map} outline={outline} paragraphHints={scaffold?.data.paragraphHints as import("@/lib/ai/schemas").SentenceScaffold["paragraphHints"]} />;
+    }
+  }
+  if (artifact.type === "speaking_progress") return <p>段落：{String(artifact.data.sectionTitle ?? artifact.data.sectionId)} · {artifact.data.mode === "single" ? "單層概念圖" : "Macro／Micro 雙層圖"} · {artifact.data.hintsVisible ? "已顯示英文提示" : "未顯示英文提示"}</p>;
   if (artifact.type === "audio") return <AudioArtifact artifact={artifact} />;
   if (artifact.type === "transcript") {
     return <TranscriptArtifact data={artifact.data} />;

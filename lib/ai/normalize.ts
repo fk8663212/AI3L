@@ -123,6 +123,6 @@ export function normalizeSentenceScaffoldOutput(studentSentences: readonly strin
       .map(text)
       .filter(Boolean)
       .slice(0, 8);
-    return { sentences, transitions };
+    return { sentences, transitions, ...(Array.isArray(source.paragraphHints) ? { paragraphHints: source.paragraphHints } : {}) };
   };
 }

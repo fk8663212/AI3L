@@ -1,3 +1,5 @@
+import { generateSpeakingOutline, saveSpeakingOutline, recordSpeakingNavigation } from "@/lib/services/speaking-outline-service";
+import { speakingSectionSchema } from "@/lib/domain/speaking-outline";
 import { after, NextResponse } from "next/server";
 import { z } from "zod";
 import {
@@ -68,6 +70,9 @@ const decisionSchema = z.object({
 });
 
 const bodySchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("build_speaking_outline") }),
+  z.object({ action: z.literal("save_speaking_outline"), sections: z.array(speakingSectionSchema).min(1).max(6) }),
+  z.object({ action: z.literal("speaking_navigation"), sectionId: z.string().min(1).max(64), mode: z.enum(["single", "macro_micro"]), hintsVisible: z.boolean().default(false), idempotencyKey: z.string().min(8).max(128) }),
   z.object({ action: z.literal("consent"), accepted: z.literal(true) }),
   z.object({
     action: z.literal("save_labels"),
@@ -152,6 +157,16 @@ export async function POST(request: Request) {
     }
 
     switch (body.action) {
+      case "build_speaking_outline":
+        await enforceRateLimit(`student-ai:${claims.sessionId}`, AI_RUN_LIMIT, AI_RUN_WINDOW_MS);
+        await generateSpeakingOutline(claims.sessionId);
+        break;
+      case "save_speaking_outline":
+        await saveSpeakingOutline(claims.sessionId, body.sections);
+        break;
+      case "speaking_navigation":
+        await recordSpeakingNavigation(claims.sessionId, body.sectionId, body.mode, body.idempotencyKey, body.hintsVisible);
+        break;
       case "consent":
         await recordConsent(claims.sessionId);
         break;

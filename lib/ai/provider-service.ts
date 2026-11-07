@@ -1,3 +1,4 @@
+import { validSpeakingOutline } from "@/lib/domain/speaking-outline";
 import { del, get } from "@/lib/storage/blob-store";
 import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
@@ -9,6 +10,7 @@ import {
   tasks,
 } from "@/lib/db/schema";
 import {
+  conceptMapSchema,
   generatedConceptMapSchema,
   imageAnalysisGenerationSchema,
   sentenceScaffoldSchema,
@@ -218,6 +220,7 @@ export async function runStageAI(
   let binary: BinaryInput | undefined;
   let sourceImageArtifactId: string | undefined;
   let scaffoldSentences: string[] = [];
+  let speakingOutlineId: string | undefined;
 
   if (stage === "image_analysis") {
     const image = artifactRows.find(
@@ -300,14 +303,26 @@ export async function runStageAI(
       );
     }
     schemaName = "sentence_scaffold";
-    schema = sentenceScaffoldSchema.extend({
+    const finalMap = conceptMapSchema.safeParse(conceptDecisions?.data.accepted);
+    const outlineArtifact = artifactRows.find((row) => row.type === "speaking_outline");
+    const outline = finalMap.success ? validSpeakingOutline(outlineArtifact?.data, finalMap.data) : null;
+    speakingOutlineId = outline ? outlineArtifact!.id : undefined;
+    const sectionIds = outline?.sections.map((section) => section.id) ?? [];
+    const paragraphHints = sentenceScaffoldSchema.shape.paragraphHints.unwrap();
+    const perSentenceSchema = sentenceScaffoldSchema.omit({ paragraphHints: true }).extend({
       sentences: sentenceScaffoldSchema.shape.sentences.length(studentSentences.length),
     });
+    schema = outline ? perSentenceSchema.extend({ paragraphHints: paragraphHints.length(sectionIds.length) }).superRefine((value, ctx) => {
+      if (new Set(value.paragraphHints.map((hint) => hint.sectionId)).size !== sectionIds.length || sectionIds.some((id) => !value.paragraphHints.some((hint) => hint.sectionId === id))) {
+        ctx.addIssue({ code: "custom", path: ["paragraphHints"], message: "每個 Macro 段落都必須有對應的關鍵詞與句首。" });
+      }
+    }) : perSentenceSchema;
     prompt = sentenceScaffoldPrompt(
       {
         taskTitle: context.task.title,
         finalConceptMap: withoutLayout(conceptDecisions?.data.accepted),
         studentSentences,
+        speakingOutline: outline ? { sections: outline.sections } : undefined,
       },
       promptConfig.sentenceScaffoldTemplate,
     );
@@ -352,6 +367,9 @@ export async function runStageAI(
       result.value = schema.parse(
         normalizeSentenceScaffoldOutput(scaffoldSentences)(result.value),
       );
+    }
+    if (stage === "sentence_scaffold" && speakingOutlineId) {
+      result.value = { ...(result.value as Record<string, unknown>), speakingOutlineId };
     }
     const outputType =
       stage === "ai_concept_map" ? "generated_concept_map" : stage;
@@ -408,6 +426,13 @@ export async function runStageAI(
     await replaceArtifactsAtomically(writes, {
       allowWhenCurrentStages: allowedCurrentStages,
       assertCurrent: async (tx) => {
+        if (stage === "sentence_scaffold") {
+          const current = await tx.query.artifacts.findMany({ where: and(eq(artifacts.sessionId, sessionId), isNull(artifacts.supersededAt)) });
+          const currentMap = conceptMapSchema.safeParse(current.find((row) => row.type === "concept_decisions")?.data.accepted);
+          const currentOutline = current.find((row) => row.type === "speaking_outline");
+          const currentId = currentMap.success && validSpeakingOutline(currentOutline?.data, currentMap.data) ? currentOutline?.id : undefined;
+          if (currentId !== speakingOutlineId) throw new ApiError(409, "OUTLINE_CHANGED", "講述段落已變更，請重新取得提示。");
+        }
         if (sourceImageArtifactId) {
           await assertSourceImageCurrent(tx, sessionId, sourceImageArtifactId);
         }

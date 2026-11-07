@@ -1,3 +1,4 @@
+import { PARAGRAPH_HINTS_CONTRACT } from "@/lib/ai/speaking-outline-prompt";
 export const BASE_SYSTEM_PROMPT = `
 你是一名支援台灣國中生英語口說的學習鷹架助理。
 你的工作不是替學生虛構經驗或直接完成口說稿，而是把學生自己的圖像與概念轉成可供選擇的語言資源。
@@ -191,14 +192,17 @@ export function sentenceScaffoldPrompt(input: {
   taskTitle: string;
   finalConceptMap: unknown;
   studentSentences: string[];
+  speakingOutline?: unknown;
 }, template = SENTENCE_SCAFFOLD_PROMPT_TEMPLATE): string {
-  return renderPromptTemplate(effectiveSentenceScaffoldTemplate(template), {
+  const base = renderPromptTemplate(effectiveSentenceScaffoldTemplate(template), {
     "task.title": input.taskTitle,
     "student.finalConceptMapJson": JSON.stringify(input.finalConceptMap),
     "student.sentencesJson": JSON.stringify(
       input.studentSentences.map((sentence, index) => ({ index, sentence })),
     ),
   });
+  if (!input.speakingOutline) return base;
+  return `${base}\n\n學生確認的 Macro 講述順序與 Micro 節點：\n${JSON.stringify(input.speakingOutline)}\n${PARAGRAPH_HINTS_CONTRACT}`;
 }
 
 export function effectiveSentenceScaffoldTemplate(

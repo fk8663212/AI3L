@@ -1,3 +1,5 @@
+> 2026-11-07 更新：正式整合已在 `feature/macro-micro-integration` 實作，見 [MACRO_MICRO.md](MACRO_MICRO.md)。以下保留最初固定範例展示的交付範圍；本文件中的「尚未整合」描述的是當時的 Demo 版本。
+
 # Macro／Micro 英語口說 Demo：僅範例展示，尚未整合正式流程
 
 本分支為 `feature/macro-micro-speaking`。目前交付的是給老師確認形式的固定資料展示，**Macro／Micro 雙層圖尚未實作到正式學生學習與研究流程中**。

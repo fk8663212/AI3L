@@ -1,8 +1,11 @@
+import { conceptMapSchema } from "@/lib/ai/schemas";
+import { validSpeakingOutline } from "@/lib/domain/speaking-outline";
 import type { StageId } from "@/lib/domain/stages";
 
 export type ChecklistStep = { label: string; done: boolean };
 
 type ArtifactLike = {
+  id?: string;
   stageId: StageId;
   type: string;
   status?: string;
@@ -69,14 +72,19 @@ export function stageChecklist(
         },
       ];
     }
-    case "sentence_scaffold":
+    case "sentence_scaffold": {
+      const map = conceptMapSchema.safeParse(find("concept_decisions", "ai_concept_map")?.data.accepted);
+      const outline = find("speaking_outline", "ai_concept_map");
+      const hasOutline = map.success && validSpeakingOutline(outline?.data, map.data);
+      const hintsCurrent = has("sentence_scaffold") && (!hasOutline || find("sentence_scaffold")?.data.speakingOutlineId === outline?.id);
       return [
         {
           label: "寫下並保存至少 3 個自己的英文句子",
           done: count(find("sentences")?.data.sentences) >= 3,
         },
-        { label: "取得分級提示", done: has("sentence_scaffold") },
+        { label: hasOutline ? "取得與目前講述段落相符的提示" : "取得分級提示", done: hintsCurrent },
         { label: "錄一段口說練習", done: has("audio") },
       ];
+    }
   }
 }

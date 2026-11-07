@@ -1,3 +1,4 @@
+import { SPEAKING_OUTLINE_TEMPLATE, PARAGRAPH_HINTS_CONTRACT } from "@/lib/ai/speaking-outline-prompt";
 import {
   DEFAULT_TASK_PROMPT_CONFIG,
   effectiveConceptExpansionTemplate,
@@ -99,6 +100,10 @@ function imageAnalysisCall(
   });
 }
 
+function outlineCall(config: TaskPromptConfig): PromptAuditCall {
+  return promptCall({ id: "speaking_outline", title: "Macro／Micro 講述架構", purpose: "只依已確認概念安排講述順序與各段子圖，不提前提供語言提示。", systemLabel: "AI scaffold system prompt", systemPrompt: config.baseSystemPrompt, userPromptTemplate: `${SPEAKING_OUTLINE_TEMPLATE}\n任務：{{task.title}}\n已確認概念圖：\n{{student.finalConceptMapJson}}`, variables: ["task.title", "student.finalConceptMapJson"] });
+}
+
 const stageCalls: Record<
   StageId,
   (config: TaskPromptConfig) => PromptAuditCall[]
@@ -142,8 +147,10 @@ const stageCalls: Record<
         "student.acceptedVocabularyJson",
       ],
     }),
+    outlineCall(config),
   ],
   sentence_scaffold: (config) => [
+    outlineCall(config),
     promptCall({
       id: "sentence_scaffold",
       title: "漸進式句型鷹架",
@@ -157,7 +164,9 @@ const stageCalls: Record<
         "task.title",
         "student.finalConceptMapJson",
         "student.sentencesJson",
+        "student.speakingOutlineJson（有講述架構時）",
       ],
+      providerNote: `有 Macro／Micro 架構時，同一個請求會額外附加 student.speakingOutlineJson 與下列契約：${PARAGRAPH_HINTS_CONTRACT}`,
     }),
     transcriptionCall(config),
     speechEvaluationCall(config),

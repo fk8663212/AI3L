@@ -24,7 +24,7 @@ describe("prompt audit catalog", () => {
     ).toHaveLength(1);
     expect(
       catalog.stages.find((stage) => stage.id === "sentence_scaffold")?.calls,
-    ).toHaveLength(3);
+    ).toHaveLength(4);
     expect(
       catalog.stages.find((stage) => stage.id === "posttest")?.calls,
     ).toHaveLength(2);

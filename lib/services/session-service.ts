@@ -1,3 +1,5 @@
+import { conceptMapSchema } from "@/lib/ai/schemas";
+import { validSpeakingOutline } from "@/lib/domain/speaking-outline";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import {
@@ -145,6 +147,11 @@ export function evidenceForStage(
     "sentences",
   );
 
+  const map = conceptMapSchema.safeParse(conceptDecisions?.data.accepted);
+  const outline = latestArtifact(rows, "ai_concept_map", "speaking_outline");
+  const scaffold = latestArtifact(rows, "sentence_scaffold", "sentence_scaffold");
+  const staleOutlineHints = stage === "sentence_scaffold" && map.success && validSpeakingOutline(outline?.data, map.data) && scaffold?.data.speakingOutlineId !== outline?.id;
+
   return {
     audioCount: stageRows.filter(
       (row) => row.type === "audio" && row.status === "ready",
@@ -160,7 +167,7 @@ export function evidenceForStage(
       ? arrayLength(conceptDecisions.data, "pending")
       : Number.MAX_SAFE_INTEGER,
     sentenceCount: sentences ? arrayLength(sentences.data, "sentences") : 0,
-    aiOutputReady: stageRows.some(
+    aiOutputReady: !staleOutlineHints && stageRows.some(
       (row) =>
         [
           "image_analysis",

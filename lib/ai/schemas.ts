@@ -107,6 +107,11 @@ export const sentenceHintSchema = z.object({
 export const sentenceScaffoldSchema = z.object({
   sentences: z.array(sentenceHintSchema).min(1).max(20),
   transitions: z.array(z.string()).max(8),
+  paragraphHints: z.array(z.object({
+    sectionId: z.string().min(1),
+    keywords: z.array(z.object({ word: z.string().min(1), translation: z.string() })).min(1).max(5),
+    sentenceStart: z.string().min(1).max(300),
+  })).max(6).optional(),
 });
 
 export type SentenceHint = z.infer<typeof sentenceHintSchema>;

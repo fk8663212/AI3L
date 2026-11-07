@@ -1,10 +1,8 @@
 # AI3L Speaking Lab
 
-> **Macro／Micro 開發狀態：目前僅以固定範例做展示，尚未整合正式學生學習流程。**
+> **Macro／Micro 已接入正式第 5、6 階段**，使用學生已確認的概念圖與實際 AI 提示。Macro 依內容安排講述段落，可改名、調整順序與概念分組；選取段落會同步切換 Micro 子圖、關鍵詞與句首。單層圖仍可切換對照。
 >
-> 「大稻埕」Demo 先保留給老師確認形式。展示頁可切換單層圖與 Macro／Micro 雙層圖，並同步顯示段落子圖、英文關鍵詞與句首；所有內容都是預先設定的範例，尚未接上學生自己的資料、AI 產出或正式研究流程。
->
-> 可下載或直接用本機瀏覽器開啟 [`public/demo/index.html`](public/demo/index.html)。完整平台啟動後的路徑為 `/demo/index.html`。展示範圍與尚待整合項目見 [`docs/SPEAKING_DEMO.md`](docs/SPEAKING_DEMO.md)。下方仍是原有研究平台的說明。
+> 操作與資料規則見 [docs/MACRO_MICRO.md](docs/MACRO_MICRO.md)。原本給老師確認形式的 [public/demo/index.html](public/demo/index.html) 仍是獨立固定範例，不使用學生資料。
 
 以論文與海報中的「視覺化 → 概念建構 → AI 擴充 → 語言鷹架 → 獨立口說」研究流程實作的繁體中文研究平台。專案支援完整本機部署，也保留 Vercel 雲端模式；學生端刻意只保留左側階段指示器與右側對話工作區，研究控制、供應商設定與匯出集中於管理後台。
 
