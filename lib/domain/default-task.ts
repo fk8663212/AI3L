@@ -1,7 +1,9 @@
 import type { StageId } from "@/lib/domain/stages";
+import type { SpeakingTemplate } from "@/lib/domain/speaking-templates";
 import {
   DEFAULT_TASK_PROMPT_CONFIG,
   LEGACY_TYPED_CONCEPT_EXPANSION_PROMPT_TEMPLATE,
+  promptConfigForSpeakingTemplate,
   type TaskPromptConfig,
 } from "@/lib/ai/prompts";
 
@@ -12,6 +14,7 @@ export type TaskStageConfig = {
 };
 
 export type TaskConfig = {
+  speakingTemplate?: SpeakingTemplate;
   locale: "zh-TW";
   targetLanguage: "en";
   consentText: string;
@@ -84,19 +87,20 @@ export function normalizeTaskConfig(
       ? DEFAULT_TASK_PROMPT_CONFIG.conceptExpansionTemplate
       : sourcePrompts?.conceptExpansionTemplate;
   return {
+    ...(config?.speakingTemplate ? { speakingTemplate: config.speakingTemplate } : {}),
     locale: config?.locale ?? DEFAULT_TASK_CONFIG.locale,
     targetLanguage:
       config?.targetLanguage ?? DEFAULT_TASK_CONFIG.targetLanguage,
     consentText: config?.consentText ?? DEFAULT_TASK_CONFIG.consentText,
     retentionDays:
       config?.retentionDays ?? DEFAULT_TASK_CONFIG.retentionDays,
-    promptConfig: {
+    promptConfig: promptConfigForSpeakingTemplate({
       ...DEFAULT_TASK_PROMPT_CONFIG,
       ...(sourcePrompts ?? {}),
       conceptExpansionTemplate:
         conceptExpansionTemplate ??
         DEFAULT_TASK_PROMPT_CONFIG.conceptExpansionTemplate,
-    },
+    }, config?.speakingTemplate),
     stageConfig: {
       pretest: {
         ...DEFAULT_TASK_CONFIG.stageConfig.pretest,

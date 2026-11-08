@@ -1,6 +1,7 @@
 import { conceptMapSchema } from "@/lib/ai/schemas";
 import { validSpeakingOutline } from "@/lib/domain/speaking-outline";
 import type { StageId } from "@/lib/domain/stages";
+import type { SpeakingTemplate } from "@/lib/domain/speaking-templates";
 
 export type ChecklistStep = { label: string; done: boolean };
 
@@ -24,7 +25,7 @@ function count(value: unknown): number {
 export function stageChecklist(
   stage: StageId,
   artifacts: readonly ArtifactLike[],
-  recording: { minimumSeconds?: number; maximumSeconds?: number } = {},
+  recording: { minimumSeconds?: number; maximumSeconds?: number; speakingTemplate?: SpeakingTemplate } = {},
 ): ChecklistStep[] {
   const find = (type: string, stageId: StageId = stage) =>
     artifacts.find((item) => item.stageId === stageId && item.type === type);
@@ -61,6 +62,8 @@ export function stageChecklist(
     }
     case "ai_concept_map": {
       const decisions = find("concept_decisions");
+      const map = conceptMapSchema.safeParse(decisions?.data.accepted);
+      const outline = find("speaking_outline");
       return [
         {
           label: "產生 AI 擴充概念圖",
@@ -70,13 +73,17 @@ export function stageChecklist(
           label: "決定保留或移除每個 AI 新增的概念與關係",
           done: Boolean(decisions) && count(decisions?.data.pending) === 0,
         },
+        ...(recording.speakingTemplate ? [{
+          label: "建立任務指定的 Macro／Micro 講述架構",
+          done: map.success && Boolean(validSpeakingOutline(outline?.data, map.data, recording.speakingTemplate)),
+        }] : []),
       ];
     }
     case "sentence_scaffold": {
       const map = conceptMapSchema.safeParse(find("concept_decisions", "ai_concept_map")?.data.accepted);
       const outline = find("speaking_outline", "ai_concept_map");
-      const hasOutline = map.success && validSpeakingOutline(outline?.data, map.data);
-      const hintsCurrent = has("sentence_scaffold") && (!hasOutline || find("sentence_scaffold")?.data.speakingOutlineId === outline?.id);
+      const hasOutline = map.success && validSpeakingOutline(outline?.data, map.data, recording.speakingTemplate ?? null);
+      const hintsCurrent = has("sentence_scaffold") && (!recording.speakingTemplate || Boolean(hasOutline)) && (!hasOutline || find("sentence_scaffold")?.data.speakingOutlineId === outline?.id);
       return [
         {
           label: "寫下並保存至少 3 個自己的英文句子",

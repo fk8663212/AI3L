@@ -1,4 +1,5 @@
-import { SPEAKING_OUTLINE_TEMPLATE, PARAGRAPH_HINTS_CONTRACT } from "@/lib/ai/speaking-outline-prompt";
+import { SPEAKING_OUTLINE_TEMPLATE, PARAGRAPH_HINTS_CONTRACT, speakingOutlineTemplate, templateAnalysisContract, paragraphHintsContract } from "@/lib/ai/speaking-outline-prompt";
+import type { SpeakingTemplate } from "@/lib/domain/speaking-templates";
 import {
   DEFAULT_TASK_PROMPT_CONFIG,
   effectiveConceptExpansionTemplate,
@@ -179,6 +180,7 @@ const stageCalls: Record<
 
 export function promptAuditCatalog(
   config: TaskPromptConfig = DEFAULT_TASK_PROMPT_CONFIG,
+  speakingTemplate?: SpeakingTemplate,
 ) {
   return {
     baseSystemPrompt: config.baseSystemPrompt,
@@ -186,6 +188,7 @@ export function promptAuditCatalog(
     contextPolicy: {
       included: [
         "任務名稱 task.title",
+        "任務指定的講述模板與版本（如有）",
         "當前階段需要的學生作品",
         "學生自行接受、修改或輸入的內容",
         "錄音長度、逐字稿與基礎語速估計",
@@ -199,7 +202,20 @@ export function promptAuditCatalog(
     },
     stages: STAGES.map((stage) => ({
       ...stage,
-      calls: stageCalls[stage.id](config),
+      calls: stageCalls[stage.id](config).map((call) => {
+        if (!speakingTemplate) return call;
+        let userPromptTemplate = call.userPromptTemplate;
+        if (call.id === "speaking_outline") userPromptTemplate = userPromptTemplate.replace(SPEAKING_OUTLINE_TEMPLATE, speakingOutlineTemplate(speakingTemplate));
+        if (call.id.startsWith("image_analysis") || call.id === "concept_expansion") userPromptTemplate += templateAnalysisContract(speakingTemplate);
+        return {
+          ...call,
+          userPromptTemplate,
+          templateHash: hashForLog(userPromptTemplate),
+          providerNote: call.id === "sentence_scaffold"
+            ? `有 Macro／Micro 架構時，同一個請求會額外附加 student.speakingOutlineJson 與下列契約：${paragraphHintsContract(speakingTemplate)}`
+            : call.providerNote,
+        };
+      }),
     })),
   };
 }

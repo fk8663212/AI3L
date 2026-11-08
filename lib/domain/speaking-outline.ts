@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { conceptMapSchema, type ConceptMap } from "@/lib/ai/schemas";
+import { sameSpeakingTemplate, type SpeakingTemplate } from "@/lib/domain/speaking-templates";
 
 export const speakingSectionSchema = z.object({
   id: z.string().min(1).max(64),
@@ -93,11 +94,23 @@ export function outlineSchemaForMap(map: ConceptMap) {
 export function validSpeakingOutline(
   data: Record<string, unknown> | undefined,
   map: ConceptMap,
+  template?: SpeakingTemplate | null,
 ) {
   if (!data || data.sourceMapSignature !== conceptMapSignature(map))
     return null;
-  const parsed = outlineSchemaForMap(map).safeParse(data);
+  if (template !== undefined && !sameSpeakingTemplate(data.speakingTemplate, template)) return null;
+  const parsed = (template ? outlineGenerationSchema(map, template) : outlineSchemaForMap(map)).safeParse(data);
   return parsed.success ? parsed.data : null;
+}
+
+export function outlineGenerationSchema(map: ConceptMap, template?: SpeakingTemplate) {
+  const schema = outlineSchemaForMap(map);
+  const informationGaps = z.array(z.string().trim().min(1).max(240)).max(6);
+  if (template?.id === "chronological") return schema.safeExtend({
+    organization: z.enum(["procedural", "chronological"]),
+    informationGaps,
+  });
+  return template ? schema.safeExtend({ informationGaps }) : schema;
 }
 
 export function outlineSourceMap(data: Record<string, unknown>) {

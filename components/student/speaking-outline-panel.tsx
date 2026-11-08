@@ -25,6 +25,10 @@ import {
 } from "@/lib/domain/speaking-outline";
 import type { SessionView } from "@/lib/services/session-service";
 import { ConceptMapCard } from "@/components/student/concept-map-card";
+import {
+  SPEAKING_TEMPLATES,
+  type SpeakingTemplate,
+} from "@/lib/domain/speaking-templates";
 
 type Perform = (body: Record<string, unknown>) => Promise<SessionView | null>;
 
@@ -37,7 +41,13 @@ export function MacroMicroCard({
   onNavigate,
   onSave,
   hintVersion,
+  speakingTemplate,
+  informationGaps = [],
+  organization,
 }: {
+  speakingTemplate?: SpeakingTemplate;
+  informationGaps?: string[];
+  organization?: string;
   hintVersion?: string;
   map: ConceptMap;
   outline: SpeakingOutline;
@@ -98,7 +108,21 @@ export function MacroMicroCard({
       <div className="speaking-outline-heading">
         <div>
           <p className="eyebrow">My speaking plan</p>
-          <h3>把想法排成一段故事</h3>
+          <h3>
+            {speakingTemplate?.id === "chronological"
+              ? "把過程排成清楚的順序"
+              : "把想法排成一段故事"}
+          </h3>
+          {speakingTemplate ? (
+            <span className="tag">
+              {SPEAKING_TEMPLATES[speakingTemplate.id].label}
+              {organization === "procedural"
+                ? " · 實作步驟"
+                : organization === "chronological"
+                  ? " · 事件先後"
+                  : ""}
+            </span>
+          ) : null}
         </div>
         <div
           className="speaking-view-switch"
@@ -121,12 +145,29 @@ export function MacroMicroCard({
           </button>
         </div>
       </div>
+      {informationGaps.length ? (
+        <aside
+          className="speaking-information-gaps"
+          role="note"
+          aria-label="待補充提醒"
+        >
+          <strong>建立架構時的待補充提醒</strong>
+          <ul>
+            {informationGaps.map((gap, index) => (
+              <li key={index}>{gap}</li>
+            ))}
+          </ul>
+          <small>確認後可補充概念圖，再重新安排段落。</small>
+        </aside>
+      ) : null}
       {mode === "single" ? (
         <ConceptMapCard map={map} title="我確認後的完整概念圖" />
       ) : (
         <>
           <p className="panel-hint">
-            Macro 決定先說什麼、再說什麼；選一段，Micro 會顯示這一段要說的細節。
+            {speakingTemplate?.id === "chronological"
+              ? "依已確認的先後安排講述；選一段，Micro 會顯示這個步驟或事件的細節。"
+              : "Macro 決定先說什麼、再說什麼；選一段，Micro 會顯示這一段要說的細節。"}
           </p>
           <ol className="macro-sequence" aria-label="Macro 講述順序">
             {outline.sections.map((item, position) => (
@@ -159,7 +200,7 @@ export function MacroMicroCard({
               </li>
             ))}
           </ol>
-          <div className="micro-workspace" data-many={submap.nodes.length > 7}>
+          <div className="micro-workspace" data-many={submap.nodes.length > 2}>
             <div>
               <ConceptMapCard
                 map={submap}
@@ -439,7 +480,8 @@ export function SpeakingOutlinePanel({
     return null;
   const map = parsed.data;
   const saved = view.artifacts.find((item) => item.type === "speaking_outline");
-  const outline = validSpeakingOutline(saved?.data, map);
+  const template = view.task.config.speakingTemplate;
+  const outline = validSpeakingOutline(saved?.data, map, template ?? null);
   const progress = view.artifacts.find(
     (item) =>
       item.type === "speaking_progress" &&
@@ -464,6 +506,19 @@ export function SpeakingOutlinePanel({
           key={saved!.id}
           map={map}
           outline={outline}
+          speakingTemplate={template}
+          organization={
+            typeof saved?.data.organization === "string"
+              ? saved.data.organization
+              : undefined
+          }
+          informationGaps={
+            Array.isArray(saved?.data.informationGaps)
+              ? saved.data.informationGaps.filter(
+                  (item): item is string => typeof item === "string",
+                )
+              : []
+          }
           paragraphHints={hints}
           hintVersion={hints ? scaffold?.id : undefined}
           initialSectionId={
@@ -487,6 +542,9 @@ export function SpeakingOutlinePanel({
         <div className="artifact-card">
           <div className="artifact-card-body">
             <h3>安排你的 Macro／Micro 講述架構</h3>
+            {template ? (
+              <p className="tag">{SPEAKING_TEMPLATES[template.id].label}</p>
+            ) : null}
             <p className="panel-hint">
               讓 AI
               依你已確認的概念安排段落，再由你調整名稱與順序。每一段都會連到自己的
@@ -494,7 +552,7 @@ export function SpeakingOutlinePanel({
             </p>
             {saved ? (
               <p className="panel-hint">
-                概念圖已更新，請依目前的內容重新安排段落。
+                概念圖或講述模板已更新，請依目前的內容重新安排段落。
               </p>
             ) : null}
           </div>

@@ -178,7 +178,7 @@ export async function adminOverview() {
       return {
         ...row,
         config,
-        promptAudit: promptAuditCatalog(config.promptConfig),
+        promptAudit: promptAuditCatalog(config.promptConfig, config.speakingTemplate),
       };
     }),
     sessionStats: {
@@ -333,6 +333,7 @@ export async function addCustomModel(input: {
 }
 
 export async function saveTaskDraft(input: {
+  speakingTemplateId?: SpeakingTemplateChoice;
   id?: string;
   title: string;
   slug: string;
@@ -347,6 +348,7 @@ export async function saveTaskDraft(input: {
   const db = getDb();
   const config = normalizeTaskConfig({
     ...DEFAULT_TASK_CONFIG,
+    speakingTemplate: speakingTemplateSelection(input.speakingTemplateId),
     retentionDays: input.retentionDays,
     stageConfig: input.stageConfig,
     promptConfig: input.promptConfig,
@@ -360,6 +362,11 @@ export async function saveTaskDraft(input: {
     if (current.status !== "draft") {
       throw new ApiError(409, "TASK_IMMUTABLE", "已發布任務不可直接修改。");
     }
+    const savedConfig = normalizeTaskConfig({
+      ...config,
+      speakingTemplate: input.speakingTemplateId === undefined
+        ? current.config.speakingTemplate : config.speakingTemplate,
+    });
     const duplicate = await db.query.tasks.findFirst({
       where: and(
         eq(tasks.slug, input.slug),
@@ -382,7 +389,7 @@ export async function saveTaskDraft(input: {
         provider: input.provider,
         modelId: input.modelId,
         promptVersion: input.promptVersion,
-        config,
+        config: savedConfig,
         updatedAt: new Date(),
       })
       .where(eq(tasks.id, input.id));
@@ -785,7 +792,7 @@ export async function exportResearchData(taskId?: string) {
       return {
         ...row,
         config,
-        promptAudit: promptAuditCatalog(config.promptConfig),
+        promptAudit: promptAuditCatalog(config.promptConfig, config.speakingTemplate),
       };
     }),
     accessCodes: codeRows.filter((row) => taskIds.has(row.taskId)),
@@ -828,3 +835,4 @@ async function audit(
     detail,
   });
 }
+import { speakingTemplateSelection, type SpeakingTemplateChoice } from "@/lib/domain/speaking-templates";

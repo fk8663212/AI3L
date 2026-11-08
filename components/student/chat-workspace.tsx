@@ -940,8 +940,10 @@ function SentencePanel({
     parsedScaffold.data.sentences.every((item) => originals[item.index] === item.original);
   const finalMap = conceptMapSchema.safeParse(artifact(view, "ai_concept_map", "concept_decisions")?.data.accepted);
   const outlineArtifact = artifact(view, "ai_concept_map", "speaking_outline");
-  const outline = finalMap.success ? validSpeakingOutline(outlineArtifact?.data, finalMap.data) : null;
-  const outlineMatches = !outline || scaffold?.data.speakingOutlineId === outlineArtifact?.id;
+  const speakingTemplate = view.task.config.speakingTemplate;
+  const outline = finalMap.success ? validSpeakingOutline(outlineArtifact?.data, finalMap.data, speakingTemplate ?? null) : null;
+  const needsOutline = Boolean(speakingTemplate && !outline);
+  const outlineMatches = !needsOutline && (!outline || scaffold?.data.speakingOutlineId === outlineArtifact?.id);
   const scaffoldReady = parsedScaffold.success && hintsMatch && outlineMatches && originals.length >= 3;
   const hintByIndex = new Map(
     parsedScaffold.success ? parsedScaffold.data.sentences.map((item) => [item.index, item]) : [],
@@ -1017,7 +1019,7 @@ function SentencePanel({
               className="textarea"
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
-              placeholder={"I saw many red lanterns.\nVisitors bought pineapple cakes.\nThe market felt lively."}
+              placeholder={speakingTemplate?.id === "chronological" ? "每行寫一句自己的英文，說明你實際做過或知道的內容。" : "I saw many red lanterns.\nVisitors bought pineapple cakes.\nThe market felt lively."}
             />
           </div>
           <div className="stage-panel-row">
@@ -1032,13 +1034,14 @@ function SentencePanel({
             <button
               className="button"
               type="button"
-              disabled={draftSentences.length < 3 || requesting}
+              disabled={draftSentences.length < 3 || requesting || needsOutline}
               onClick={saveDraftAndGetHints}
             >
               {requesting ? <LoaderCircle className="spin" size={16} /> : <Sparkles size={16} />}
               {requesting ? "正在為每一句準備提示…" : "保存句子並取得提示"}
             </button>
           </div>
+          {needsOutline ? <p className="panel-hint">請先在上方建立任務指定的講述架構，再取得對應提示。</p> : null}
         </>
       ) : (
         <div className="stage-panel-row">
@@ -1198,10 +1201,11 @@ export function ChatWorkspace({ initialView }: { initialView: SessionView }) {
   const stageConfig = view.task.config.stageConfig[stage];
   const checklist = stageChecklist(
     stage,
-    view.artifacts.filter((item) => item.stageId === stage),
+    view.artifacts,
     {
       minimumSeconds: stageConfig.minimumRecordingSeconds,
       maximumSeconds: stageConfig.maximumRecordingSeconds,
+      speakingTemplate: view.task.config.speakingTemplate,
     },
   );
   const remaining = checklist.filter((step) => !step.done).length;

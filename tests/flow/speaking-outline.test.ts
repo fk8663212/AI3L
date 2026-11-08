@@ -35,6 +35,11 @@ import {
   startStudentSession,
 } from "@/lib/services/session-service";
 import { exportResearchData } from "@/lib/services/admin-service";
+import {
+  saveTaskDraft,
+  createTaskRevision,
+} from "@/lib/services/admin-service";
+import { speakingTemplateSelection } from "@/lib/domain/speaking-templates";
 import { encryptSecret } from "@/lib/security/crypto";
 import { conceptMapOutput, sentenceScaffoldOutput } from "./fixtures";
 const map = conceptMapOutput();
@@ -67,34 +72,30 @@ const current = () => getSessionView(auth.id!);
 beforeAll(async () => {
   process.env.APP_ENCRYPTION_KEY = "macro-micro-test-encryption-0123456789";
   const secret = encryptSecret("test-api-key");
-  await getDb()
-    .insert(providerCredentials)
-    .values({
-      provider: "google",
-      displayName: "Test Gemini",
-      encryptedKey: secret.encryptedValue,
-      encryptionIv: secret.encryptionIv,
-      encryptionTag: secret.encryptionTag,
-      keyLastFour: "-key",
-      verifiedAt: new Date(),
-    });
+  await getDb().insert(providerCredentials).values({
+    provider: "google",
+    displayName: "Test Gemini",
+    encryptedKey: secret.encryptedValue,
+    encryptionIv: secret.encryptionIv,
+    encryptionTag: secret.encryptionTag,
+    keyLastFour: "-key",
+    verifiedAt: new Date(),
+  });
 });
 beforeEach(async () => {
-  ai.generate
-    .mockReset()
-    .mockImplementation(async (input) => ({
-      value:
-        input.schemaName === "speaking_outline"
-          ? { sections }
-          : {
-              ...sentenceScaffoldOutput(),
-              paragraphHints: sections.map((section) => ({
-                sectionId: section.id,
-                keywords: [{ word: "kite", translation: "風箏" }],
-                sentenceStart: `For ${section.titleEn}, I …`,
-              })),
-            },
-    }));
+  ai.generate.mockReset().mockImplementation(async (input) => ({
+    value:
+      input.schemaName === "speaking_outline"
+        ? { sections }
+        : {
+            ...sentenceScaffoldOutput(),
+            paragraphHints: sections.map((section) => ({
+              sectionId: section.id,
+              keywords: [{ word: "kite", translation: "風箏" }],
+              sentenceStart: `For ${section.titleEn}, I …`,
+            })),
+          },
+  }));
   const [task] = await getDb()
     .insert(tasks)
     .values({
@@ -133,6 +134,193 @@ beforeEach(async () => {
 });
 
 describe("Macro / Micro in the real student flow", () => {
+  it("saves the task template, preserves it for older clients and revisions, and locks published settings", async () => {
+    const input = {
+      title: "Windmill activity",
+      slug: "windmill-" + randomUUID(),
+      description: "A synthetic procedural task",
+      provider: "google" as const,
+      modelId: "test-model",
+      promptVersion: "1.0.0",
+      retentionDays: 180,
+      stageConfig: DEFAULT_TASK_CONFIG.stageConfig,
+      promptConfig: DEFAULT_TASK_CONFIG.promptConfig,
+    };
+    const id = await saveTaskDraft({
+      ...input,
+      speakingTemplateId: "chronological",
+    });
+    await saveTaskDraft({ ...input, id }); // Compatibility with an older API client.
+    const task = await getDb().query.tasks.findFirst({
+      where: eq(tasks.id, id),
+    });
+    expect(task?.config.speakingTemplate).toEqual(
+      speakingTemplateSelection("chronological"),
+    );
+    expect(JSON.stringify(task?.config.promptConfig)).not.toContain("大稻埕");
+    await getDb()
+      .update(tasks)
+      .set({ status: "published" })
+      .where(eq(tasks.id, id));
+    await expect(
+      saveTaskDraft({ ...input, id, speakingTemplateId: "spatial" }),
+    ).rejects.toMatchObject({ code: "TASK_IMMUTABLE" });
+    const revision = await createTaskRevision({
+      taskId: id,
+      promptVersion: "2.0.0",
+    });
+    expect(
+      (
+        await getDb().query.tasks.findFirst({
+          where: eq(tasks.id, revision.id),
+        })
+      )?.config.speakingTemplate,
+    ).toEqual(speakingTemplateSelection("chronological"));
+  });
+
+  it("builds and exports a procedural outline, requires it before hints, and conceals it in the posttest", async () => {
+    const template = speakingTemplateSelection("chronological")!;
+    await getDb()
+      .update(tasks)
+      .set({ config: { ...DEFAULT_TASK_CONFIG, speakingTemplate: template } })
+      .where(eq(tasks.id, taskId));
+    expect((await current()).gate.code).toBe("OUTLINE_REQUIRED");
+    ai.generate.mockImplementationOnce(async () => ({
+      value: {
+        sections,
+        organization: "procedural",
+        informationGaps: ["請補充最後的測試結果。"],
+      },
+    }));
+    expect((await act({ action: "build_speaking_outline" })).status).toBe(200);
+    const outline = (await current()).artifacts.find(
+      (item) => item.type === "speaking_outline",
+    )!;
+    expect(outline.data.speakingTemplate).toEqual(template);
+    expect(outline.data.schemaVersion).toBe("macro-micro-v2");
+    expect(outline.data.informationGaps).toEqual(["請補充最後的測試結果。"]);
+    expect((await current()).task.config.speakingTemplate).toEqual(template);
+    expect(
+      (
+        await act({
+          action: "save_speaking_outline",
+          sections: [...sections].reverse(),
+        })
+      ).status,
+    ).toBe(200);
+    const editedOutline = (await current()).artifacts.find(
+      (item) => item.type === "speaking_outline",
+    )!;
+    expect(ai.generate.mock.calls[0][0].prompt).toContain("核心操作／步驟");
+    expect(
+      (
+        await act({
+          action: "complete_stage",
+          stage: "ai_concept_map",
+          stateVersion: (await current()).session.stateVersion,
+        })
+      ).status,
+    ).toBe(200);
+    await act({
+      action: "save_sentences",
+      phase: "draft",
+      sentences: [
+        "I prepare the paper.",
+        "I make the blades.",
+        "I test the windmill.",
+      ],
+      hintLevel: 0,
+      idempotencyKey: randomUUID(),
+    });
+    expect(
+      (await act({ action: "run_ai", stage: "sentence_scaffold" })).status,
+    ).toBe(200);
+    expect(ai.generate.mock.calls.at(-1)![0].prompt).toContain("First、Next");
+    const scaffold = (await current()).artifacts.find(
+      (item) => item.type === "sentence_scaffold",
+    )!;
+    expect(scaffold.data.speakingTemplate).toEqual(template);
+    expect(scaffold.data.speakingOutlineId).toBe(editedOutline.id);
+    expect(JSON.stringify(await exportResearchData(taskId))).toContain(
+      "procedural",
+    );
+    await getDb()
+      .update(studentSessions)
+      .set({ currentStage: "posttest" })
+      .where(eq(studentSessions.id, auth.id!));
+    expect(
+      (await current()).artifacts.some(
+        (item) =>
+          item.type === "speaking_outline" || item.type === "sentence_scaffold",
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects legacy outlines for a template task before requesting language hints", async () => {
+    await act({ action: "build_speaking_outline" });
+    await getDb()
+      .update(tasks)
+      .set({
+        config: {
+          ...DEFAULT_TASK_CONFIG,
+          speakingTemplate: speakingTemplateSelection("chronological"),
+        },
+      })
+      .where(eq(tasks.id, taskId));
+    await getDb()
+      .update(studentSessions)
+      .set({ currentStage: "sentence_scaffold" })
+      .where(eq(studentSessions.id, auth.id!));
+    await act({
+      action: "save_sentences",
+      phase: "draft",
+      sentences: ["I prepare paper.", "I fold it.", "I test it."],
+      hintLevel: 0,
+      idempotencyKey: randomUUID(),
+    });
+    expect(
+      (await act({ action: "run_ai", stage: "sentence_scaffold" })).error.code,
+    ).toBe("OUTLINE_REQUIRED");
+    expect(ai.generate).toHaveBeenCalledTimes(1);
+    expect((await current()).gate.code).toBe("OUTLINE_REQUIRED");
+  });
+
+  it("discards an outline if the task template changes during generation", async () => {
+    const template = speakingTemplateSelection("chronological")!;
+    await getDb()
+      .update(tasks)
+      .set({ config: { ...DEFAULT_TASK_CONFIG, speakingTemplate: template } })
+      .where(eq(tasks.id, taskId));
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    ai.generate.mockImplementationOnce(async () => {
+      await gate;
+      return {
+        value: { sections, organization: "procedural", informationGaps: [] },
+      };
+    });
+    const pending = act({ action: "build_speaking_outline" });
+    await vi.waitFor(() => expect(ai.generate).toHaveBeenCalledTimes(1));
+    await getDb()
+      .update(tasks)
+      .set({
+        config: {
+          ...DEFAULT_TASK_CONFIG,
+          speakingTemplate: speakingTemplateSelection("spatial"),
+        },
+      })
+      .where(eq(tasks.id, taskId));
+    release();
+    expect((await pending).error.code).toBe("OUTLINE_CHANGED");
+    expect(
+      (await current()).artifacts.some(
+        (item) => item.type === "speaking_outline",
+      ),
+    ).toBe(false);
+  });
+
   it("builds from approved concepts, saves edits, links language hints and exports research records", async () => {
     expect((await act({ action: "build_speaking_outline" })).status).toBe(200);
     expect(ai.generate.mock.calls[0][0].prompt).toContain(map.nodes[0].id);

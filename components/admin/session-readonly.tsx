@@ -1,5 +1,6 @@
 import { MacroMicroCard } from "@/components/student/speaking-outline-panel";
 import { outlineSourceMap, validSpeakingOutline } from "@/lib/domain/speaking-outline";
+import { parseSpeakingTemplate } from "@/lib/domain/speaking-templates";
 import { Lock, ShieldCheck } from "lucide-react";
 import {
   annotatedImageSchema,
@@ -310,7 +311,7 @@ function ArtifactBody({
     const outline = map ? validSpeakingOutline(artifact.data, map) : null;
     if (map && outline) {
       const scaffold = allArtifacts.filter((item) => item.type === "sentence_scaffold" && item.data.speakingOutlineId === artifact.id).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
-      return <MacroMicroCard map={map} outline={outline} paragraphHints={scaffold?.data.paragraphHints as import("@/lib/ai/schemas").SentenceScaffold["paragraphHints"]} />;
+      return <MacroMicroCard map={map} outline={outline} speakingTemplate={parseSpeakingTemplate(artifact.data.speakingTemplate)} organization={typeof artifact.data.organization === "string" ? artifact.data.organization : undefined} informationGaps={stringArray(artifact.data.informationGaps)} paragraphHints={scaffold?.data.paragraphHints as import("@/lib/ai/schemas").SentenceScaffold["paragraphHints"]} />;
     }
   }
   if (artifact.type === "speaking_progress") return <p>段落：{String(artifact.data.sectionTitle ?? artifact.data.sectionId)} · {artifact.data.mode === "single" ? "單層概念圖" : "Macro／Micro 雙層圖"} · {artifact.data.hintsVisible ? "已顯示英文提示" : "未顯示英文提示"}</p>;

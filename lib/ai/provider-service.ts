@@ -1,4 +1,5 @@
 import { validSpeakingOutline } from "@/lib/domain/speaking-outline";
+import { sameSpeakingTemplate } from "@/lib/domain/speaking-templates";
 import { del, get } from "@/lib/storage/blob-store";
 import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
@@ -196,6 +197,7 @@ export async function runStageAI(
   const db = getDb();
   const context = await taskAIContext(sessionId);
   const promptConfig = normalizeTaskConfig(context.task.config).promptConfig;
+  const speakingTemplate = context.task.config.speakingTemplate;
   const isBackground =
     stage !== "sentence_scaffold" && options?.trigger === "background";
   const allowedCurrentStages: StageId[] =
@@ -244,6 +246,7 @@ export async function runStageAI(
         studentLabels: Array.isArray(labels?.data.labels)
           ? (labels.data.labels as string[])
           : [],
+        speakingTemplate,
       },
       promptConfig.imageAnalysisTemplate,
     );
@@ -276,6 +279,7 @@ export async function runStageAI(
           artifactId: selfMapImage.id,
         },
         acceptedVocabulary: vocabulary?.data.accepted ?? [],
+        speakingTemplate,
       },
       promptConfig.conceptExpansionTemplate,
     );
@@ -305,7 +309,8 @@ export async function runStageAI(
     schemaName = "sentence_scaffold";
     const finalMap = conceptMapSchema.safeParse(conceptDecisions?.data.accepted);
     const outlineArtifact = artifactRows.find((row) => row.type === "speaking_outline");
-    const outline = finalMap.success ? validSpeakingOutline(outlineArtifact?.data, finalMap.data) : null;
+    const outline = finalMap.success ? validSpeakingOutline(outlineArtifact?.data, finalMap.data, speakingTemplate ?? null) : null;
+    if (speakingTemplate && !outline) throw new ApiError(409, "OUTLINE_REQUIRED", "請先依任務模板建立講述架構，再取得提示。");
     speakingOutlineId = outline ? outlineArtifact!.id : undefined;
     const sectionIds = outline?.sections.map((section) => section.id) ?? [];
     const paragraphHints = sentenceScaffoldSchema.shape.paragraphHints.unwrap();
@@ -322,7 +327,12 @@ export async function runStageAI(
         taskTitle: context.task.title,
         finalConceptMap: withoutLayout(conceptDecisions?.data.accepted),
         studentSentences,
-        speakingOutline: outline ? { sections: outline.sections } : undefined,
+        speakingOutline: outline ? {
+          sections: outline.sections,
+          ...(typeof outlineArtifact?.data.organization === "string" ? { organization: outlineArtifact.data.organization } : {}),
+          ...(Array.isArray(outlineArtifact?.data.informationGaps) ? { informationGaps: outlineArtifact.data.informationGaps } : {}),
+        } : undefined,
+        speakingTemplate,
       },
       promptConfig.sentenceScaffoldTemplate,
     );
@@ -369,7 +379,7 @@ export async function runStageAI(
       );
     }
     if (stage === "sentence_scaffold" && speakingOutlineId) {
-      result.value = { ...(result.value as Record<string, unknown>), speakingOutlineId };
+      result.value = { ...(result.value as Record<string, unknown>), speakingOutlineId, ...(speakingTemplate ? { speakingTemplate } : {}) };
     }
     const outputType =
       stage === "ai_concept_map" ? "generated_concept_map" : stage;
@@ -427,10 +437,12 @@ export async function runStageAI(
       allowWhenCurrentStages: allowedCurrentStages,
       assertCurrent: async (tx) => {
         if (stage === "sentence_scaffold") {
+          const currentTask = await tx.query.tasks.findFirst({ where: eq(tasks.id, context.task.id) });
+          if (!sameSpeakingTemplate(currentTask?.config.speakingTemplate, speakingTemplate)) throw new ApiError(409, "OUTLINE_CHANGED", "講述模板已變更，請重新建立架構與提示。");
           const current = await tx.query.artifacts.findMany({ where: and(eq(artifacts.sessionId, sessionId), isNull(artifacts.supersededAt)) });
           const currentMap = conceptMapSchema.safeParse(current.find((row) => row.type === "concept_decisions")?.data.accepted);
           const currentOutline = current.find((row) => row.type === "speaking_outline");
-          const currentId = currentMap.success && validSpeakingOutline(currentOutline?.data, currentMap.data) ? currentOutline?.id : undefined;
+          const currentId = currentMap.success && validSpeakingOutline(currentOutline?.data, currentMap.data, speakingTemplate ?? null) ? currentOutline?.id : undefined;
           if (currentId !== speakingOutlineId) throw new ApiError(409, "OUTLINE_CHANGED", "講述段落已變更，請重新取得提示。");
         }
         if (sourceImageArtifactId) {

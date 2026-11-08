@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, type ReactNode, type Ref } from "react";
+import { useEffect, useId, useRef, type ReactNode, type Ref } from "react";
 import type { ConceptMap } from "@/lib/ai/schemas";
 
 export type PositionedNode = ConceptMap["nodes"][number] & {
@@ -157,6 +157,22 @@ export function ConceptMapCard({
   title?: string;
 }) {
   const nodes = positionedNodes(map);
+  const graphRef = useRef<HTMLDivElement>(null);
+  const layoutKey = nodes
+    .map((node) => `${node.id}:${node.x}:${node.y}`)
+    .join("|");
+  useEffect(() => {
+    const viewport = graphRef.current;
+    if (!viewport) return;
+    const center = () => {
+      viewport.scrollLeft = (viewport.scrollWidth - viewport.clientWidth) / 2;
+      viewport.scrollTop = (viewport.scrollHeight - viewport.clientHeight) / 2;
+    };
+    center();
+    const observer = new ResizeObserver(center);
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, [layoutKey]);
 
   return (
     <div className="artifact-card concept-map-card">
@@ -174,6 +190,7 @@ export function ConceptMapCard({
         ) : null}
         <div
           className="concept-graph"
+          ref={graphRef}
           role="img"
           aria-label={title}
           tabIndex={nodes.length > 2 ? 0 : undefined}

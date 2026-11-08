@@ -91,6 +91,8 @@ export const STAGES: readonly StageDefinition[] = [
 ] as const;
 
 export type GateEvidence = {
+  speakingOutlineRequired?: boolean;
+  speakingOutlineReady?: boolean;
   audioCount: number;
   imageCount: number;
   selfLabelCount: number;
@@ -111,7 +113,8 @@ export type StageGateResult = {
     | "CONCEPT_MAP_REQUIRED"
     | "AI_OUTPUT_REQUIRED"
     | "REVIEW_REQUIRED"
-    | "SENTENCES_REQUIRED";
+    | "SENTENCES_REQUIRED"
+    | "OUTLINE_REQUIRED";
   message: string;
 };
 
@@ -181,6 +184,9 @@ export function evaluateStageGate(
           message: "請先產生 AI 概念圖建議。",
         };
       }
+      if (evidence.pendingConceptDecisions === 0 && evidence.speakingOutlineRequired && !evidence.speakingOutlineReady) {
+        return { ok: false, code: "OUTLINE_REQUIRED", message: "請依任務模板建立 Macro／Micro 講述架構。" };
+      }
       return evidence.pendingConceptDecisions === 0
         ? ok()
         : {
@@ -189,6 +195,9 @@ export function evaluateStageGate(
             message: "請審核所有 AI 概念與關係建議。",
           };
     case "sentence_scaffold":
+      if (evidence.speakingOutlineRequired && !evidence.speakingOutlineReady) {
+        return { ok: false, code: "OUTLINE_REQUIRED", message: "請先依任務模板建立目前概念圖的講述架構。" };
+      }
       if (!evidence.aiOutputReady) {
         return {
           ok: false,

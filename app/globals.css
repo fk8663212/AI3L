@@ -4802,6 +4802,13 @@ button {
 
 /* Speaking order and the selected paragraph share one source concept map. */
 .speaking-outline-panel { display: grid; gap: 14px; min-width: 0; }
+.speaking-template-settings { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(0, 2fr); gap: 20px; padding: 20px; border: 1px solid var(--line); border-radius: 16px; background: var(--canvas); }
+.speaking-template-description { display: grid; justify-items: start; gap: 8px; }
+.speaking-template-description p { margin: 0; }
+.speaking-template-description small { color: var(--ink-soft); }
+.speaking-information-gaps { margin: 0 0 18px; padding: 14px 18px; border: 1px solid #f2cfaa; border-radius: 12px; background: var(--ai-soft); color: var(--ink); }
+.speaking-information-gaps ul { margin: 8px 0; padding-left: 20px; }
+@media (max-width: 760px) { .speaking-template-settings { grid-template-columns: minmax(0, 1fr); } }
 .speaking-outline { border: 1px solid var(--line); background: white; border-radius: 20px; padding: clamp(14px, 3vw, 24px); min-width: 0; }
 .speaking-outline-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
 .speaking-outline-heading h3 { margin: 4px 0; }

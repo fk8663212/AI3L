@@ -1,7 +1,8 @@
 import { normalizeTaskConfig } from "@/lib/domain/default-task";
 import { and, eq, isNull } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
-import { aiRuns, artifacts } from "@/lib/db/schema";
+import { aiRuns, artifacts, tasks } from "@/lib/db/schema";
+import { sameSpeakingTemplate, type SpeakingTemplate } from "@/lib/domain/speaking-templates";
 import { conceptMapSchema } from "@/lib/ai/schemas";
 import { generateStructured } from "@/lib/ai/provider";
 import { taskAIContext } from "@/lib/ai/provider-service";
@@ -9,6 +10,7 @@ import { speakingOutlinePrompt } from "@/lib/ai/speaking-outline-prompt";
 import {
   conceptMapSignature,
   outlineSchemaForMap,
+  outlineGenerationSchema,
   validSpeakingOutline,
   type SpeakingSection,
 } from "@/lib/domain/speaking-outline";
@@ -56,6 +58,8 @@ async function assertSource(
   sessionId: string,
   signature: string,
   previousId?: string,
+  taskId?: string,
+  template?: SpeakingTemplate,
 ) {
   const rows = await tx.query.artifacts.findMany({
     where: and(
@@ -67,10 +71,12 @@ async function assertSource(
     rows.find((row) => row.type === "concept_decisions")?.data.accepted,
   );
   const outline = rows.find((row) => row.type === "speaking_outline");
+  const task = taskId ? await tx.query.tasks.findFirst({ where: eq(tasks.id, taskId) }) : undefined;
   if (
     !map.success ||
     conceptMapSignature(map.data) !== signature ||
     outline?.id !== previousId
+    || (taskId && !sameSpeakingTemplate(task?.config.speakingTemplate, template))
   )
     throw new ApiError(
       409,
@@ -82,10 +88,12 @@ async function assertSource(
 export async function generateSpeakingOutline(sessionId: string) {
   const { map, previous, view } = await outlineContext(sessionId);
   const context = await taskAIContext(sessionId);
+  const template = context.task.config.speakingTemplate;
   const signature = conceptMapSignature(map);
   const prompt = speakingOutlinePrompt(
     context.task.title,
     JSON.parse(signature),
+    template,
   );
   const started = Date.now();
   const [run] = await getDb()
@@ -106,12 +114,12 @@ export async function generateSpeakingOutline(sessionId: string) {
       apiKey: context.apiKey,
       modelId: context.task.modelId,
       schemaName: "speaking_outline",
-      schema: outlineSchemaForMap(map),
+      schema: outlineGenerationSchema(map, template),
       system: normalizeTaskConfig(context.task.config).promptConfig
         .baseSystemPrompt,
       prompt,
     });
-    const plan = outlineSchemaForMap(map).parse(output.value);
+    const plan = outlineGenerationSchema(map, template).parse(output.value);
     await replaceArtifactsAtomically(
       [
         {
@@ -122,14 +130,15 @@ export async function generateSpeakingOutline(sessionId: string) {
             ...plan,
             generatedSections: plan.sections,
             sourceMapSignature: signature,
-            schemaVersion: "macro-micro-v1",
+            schemaVersion: template ? "macro-micro-v2" : "macro-micro-v1",
+            ...(template ? { speakingTemplate: template } : {}),
           },
         },
       ],
       {
         allowWhenCurrentStages: ["ai_concept_map", "sentence_scaffold"],
         assertCurrent: (tx) =>
-          assertSource(tx, sessionId, signature, previous?.id),
+          assertSource(tx, sessionId, signature, previous?.id, context.task.id, template),
       },
     );
     await saveMessage({
@@ -137,7 +146,7 @@ export async function generateSpeakingOutline(sessionId: string) {
       stageId: view.session.currentStage,
       role: "assistant",
       kind: "speaking_outline",
-      content: { sections: plan.sections },
+      content: { ...plan, ...(template ? { speakingTemplate: template } : {}) },
     });
     await getDb()
       .update(aiRuns)
@@ -179,7 +188,8 @@ export async function saveSpeakingOutline(
   sections: SpeakingSection[],
 ) {
   const { map, previous, view } = await outlineContext(sessionId);
-  if (!validSpeakingOutline(previous?.data, map))
+  const template = view.task.config.speakingTemplate;
+  if (!validSpeakingOutline(previous?.data, map, template ?? null))
     throw new ApiError(
       409,
       "OUTLINE_REQUIRED",
@@ -203,7 +213,7 @@ export async function saveSpeakingOutline(
     {
       allowWhenCurrentStages: ["ai_concept_map", "sentence_scaffold"],
       assertCurrent: (tx) =>
-        assertSource(tx, sessionId, signature, previous!.id),
+        assertSource(tx, sessionId, signature, previous!.id, view.task.id, template),
     },
   );
   await saveMessage({
@@ -211,7 +221,7 @@ export async function saveSpeakingOutline(
     stageId: view.session.currentStage,
     role: "student",
     kind: "speaking_outline_edit",
-    content: { sections: plan.sections },
+    content: { sections: plan.sections, ...(template ? { speakingTemplate: template } : {}) },
   });
 }
 
@@ -223,7 +233,8 @@ export async function recordSpeakingNavigation(
   hintsVisible = false,
 ) {
   const { map, previous, view } = await outlineContext(sessionId);
-  const plan = validSpeakingOutline(previous?.data, map);
+  const template = view.task.config.speakingTemplate;
+  const plan = validSpeakingOutline(previous?.data, map, template ?? null);
   if (!plan?.sections.some((section) => section.id === sectionId))
     throw new ApiError(400, "INVALID_SECTION", "找不到這個講述段落。");
   const scaffold = view.artifacts.find(
@@ -235,6 +246,7 @@ export async function recordSpeakingNavigation(
       .titleZh,
     mode,
     outlineId: previous!.id,
+    ...(template ? { speakingTemplate: template } : {}),
     hintsVisible:
       hintsVisible &&
       mode === "macro_micro" &&

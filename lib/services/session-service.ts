@@ -1,5 +1,6 @@
 import { conceptMapSchema } from "@/lib/ai/schemas";
 import { validSpeakingOutline } from "@/lib/domain/speaking-outline";
+import type { SpeakingTemplate } from "@/lib/domain/speaking-templates";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import {
@@ -126,6 +127,7 @@ function latestArtifact(
 export function evidenceForStage(
   rows: ArtifactRow[],
   stage: StageId,
+  speakingTemplate?: SpeakingTemplate,
 ): GateEvidence {
   const stageRows = rows.filter(
     (row) => row.stageId === stage && row.supersededAt === null,
@@ -150,9 +152,12 @@ export function evidenceForStage(
   const map = conceptMapSchema.safeParse(conceptDecisions?.data.accepted);
   const outline = latestArtifact(rows, "ai_concept_map", "speaking_outline");
   const scaffold = latestArtifact(rows, "sentence_scaffold", "sentence_scaffold");
-  const staleOutlineHints = stage === "sentence_scaffold" && map.success && validSpeakingOutline(outline?.data, map.data) && scaffold?.data.speakingOutlineId !== outline?.id;
+  const outlineReady = map.success && Boolean(validSpeakingOutline(outline?.data, map.data, speakingTemplate ?? null));
+  const staleOutlineHints = stage === "sentence_scaffold" && outlineReady && scaffold?.data.speakingOutlineId !== outline?.id;
 
   return {
+    speakingOutlineRequired: Boolean(speakingTemplate),
+    speakingOutlineReady: Boolean(outlineReady),
     audioCount: stageRows.filter(
       (row) => row.type === "audio" && row.status === "ready",
     ).length,
@@ -334,6 +339,7 @@ export async function getSessionView(
   const evidence = evidenceForStage(
     artifactRows,
     found.session.currentStage,
+    found.task.config.speakingTemplate,
   );
   const normalizedConfig = normalizeTaskConfig(found.task.config);
   const backgroundStatus = (stage: BackgroundAIStage) =>
@@ -364,6 +370,7 @@ export async function getSessionView(
       provider: found.task.provider,
       modelId: found.task.modelId,
       config: {
+        ...(normalizedConfig.speakingTemplate ? { speakingTemplate: normalizedConfig.speakingTemplate } : {}),
         locale: normalizedConfig.locale,
         targetLanguage: normalizedConfig.targetLanguage,
         consentText: normalizedConfig.consentText,
@@ -787,9 +794,10 @@ export async function completeCurrentStage(
       .from(artifacts)
       .where(eq(artifacts.sessionId, sessionId))
       .orderBy(desc(artifacts.createdAt));
+    const task = await tx.query.tasks.findFirst({ where: eq(tasks.id, session.taskId) });
     const gate = evaluateStageGate(
       session.currentStage,
-      evidenceForStage(rows, session.currentStage),
+      evidenceForStage(rows, session.currentStage, task?.config.speakingTemplate),
     );
     if (!gate.ok) throw new ApiError(409, "GATE_NOT_MET", gate.message);
 

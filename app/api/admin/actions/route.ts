@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { speakingTemplateIdSchema } from "@/lib/domain/speaking-templates";
 import { z } from "zod";
 import {
   addCustomModel,
@@ -99,6 +100,7 @@ const bodySchema = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal("save_task"),
+    speakingTemplateId: speakingTemplateIdSchema.or(z.literal("legacy")).optional(),
     id: z.string().uuid().optional(),
     title: z.string().min(2).max(180),
     slug: z

@@ -42,6 +42,11 @@ import {
   RetentionPanel,
 } from "@/components/admin/data-panels";
 import { STAGES, type StageId } from "@/lib/domain/stages";
+import {
+  SPEAKING_TEMPLATES, applySpeakingTemplateInstructions, speakingTemplateInstructions,
+  speakingTemplateLabel, speakingTemplateSelection, type SpeakingTemplateChoice,
+} from "@/lib/domain/speaking-templates";
+import { promptConfigForSpeakingTemplate } from "@/lib/ai/prompts";
 import { taskDeletionConfirmation } from "@/lib/domain/task-deletion";
 import {
   MIN_STAGE_OVERRIDE_REASON_LENGTH,
@@ -506,11 +511,12 @@ function TasksTab({
   const [provider, setProvider] = useState<"google" | "openai">("google");
   const [modelId, setModelId] = useState("gemini-3.6-flash");
   const [promptVersion, setPromptVersion] = useState("1.0.0");
+  const [speakingTemplateId, setSpeakingTemplateId] = useState<SpeakingTemplateChoice>("spatial");
   const [stageConfig, setStageConfig] = useState(
-    () => structuredClone(data.taskDefaults.stageConfig),
+    () => applySpeakingTemplateInstructions(data.taskDefaults.stageConfig, "spatial"),
   );
   const [promptConfig, setPromptConfig] = useState<PromptConfig>(
-    () => structuredClone(data.taskDefaults.promptConfig),
+    () => promptConfigForSpeakingTemplate(structuredClone(data.taskDefaults.promptConfig), speakingTemplateSelection("spatial")),
   );
   const [message, setMessage] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<
@@ -527,8 +533,9 @@ function TasksTab({
     setProvider("google");
     setModelId("gemini-3.6-flash");
     setPromptVersion("1.0.0");
-    setStageConfig(structuredClone(data.taskDefaults.stageConfig));
-    setPromptConfig(structuredClone(data.taskDefaults.promptConfig));
+    setSpeakingTemplateId("spatial");
+    setStageConfig(applySpeakingTemplateInstructions(data.taskDefaults.stageConfig, "spatial"));
+    setPromptConfig(promptConfigForSpeakingTemplate(structuredClone(data.taskDefaults.promptConfig), speakingTemplateSelection("spatial")));
   }
 
   function editDraft(task: Overview["tasks"][number]) {
@@ -539,6 +546,7 @@ function TasksTab({
     setProvider(task.provider as "google" | "openai");
     setModelId(task.modelId);
     setPromptVersion(task.promptVersion);
+    setSpeakingTemplateId(task.config.speakingTemplate?.id ?? "legacy");
     setStageConfig(structuredClone(task.config.stageConfig));
     setPromptConfig(structuredClone(task.config.promptConfig));
     setMessage("");
@@ -560,6 +568,7 @@ function TasksTab({
       provider,
       modelId,
       promptVersion,
+      speakingTemplateId,
       retentionDays: 180,
       stageConfig,
       promptConfig,
@@ -692,6 +701,40 @@ function TasksTab({
             </div>
           </div>
 
+          <div className="speaking-template-settings">
+            <div className="field">
+              <label htmlFor="task-speaking-template">講述架構模板</label>
+              <select id="task-speaking-template" className="input" value={speakingTemplateId}
+                onChange={(event) => {
+                  const next = event.target.value as SpeakingTemplateChoice;
+                  if (next !== "legacy") {
+                    const previous = speakingTemplateId === "legacy"
+                      ? Object.fromEntries(STAGES.map(({ id }) => [id, data.taskDefaults.stageConfig[id].instruction])) as Record<StageId, string>
+                      : speakingTemplateInstructions(speakingTemplateId);
+                    setStageConfig((current) => applySpeakingTemplateInstructions(current, next, previous));
+                    setPromptConfig((current) => promptConfigForSpeakingTemplate(current, speakingTemplateSelection(next)));
+                  }
+                  setSpeakingTemplateId(next);
+                }}>
+                <option value="spatial">空間／導覽順序</option>
+                <option value="chronological">時間／流程順序</option>
+                <option value="legacy">原有講述架構（未指定模板）</option>
+              </select>
+              <small>發布後固定為任務版本；既有自訂階段說明會保留。</small>
+            </div>
+            {speakingTemplateId !== "legacy" ? <div className="speaking-template-description">
+              <strong>{SPEAKING_TEMPLATES[speakingTemplateId].english}</strong>
+              <p>{SPEAKING_TEMPLATES[speakingTemplateId].description}</p>
+              <p>{SPEAKING_TEMPLATES[speakingTemplateId].sequence}</p>
+              {speakingTemplateId === "chronological" ? <small>歷史事件依背景、事件發展與結果安排；缺少的資料會提醒補充，不會補出未發生的步驟或成果。</small> : null}
+              <button className="button secondary" type="button" onClick={() => {
+                if (window.confirm("套用會取代目前七個階段的說明。要套用這個模板的預設說明嗎？")) {
+                  setStageConfig((current) => applySpeakingTemplateInstructions(current, speakingTemplateId));
+                }
+              }}>套用模板的階段說明</button>
+            </div> : null}
+          </div>
+
           <details className="task-config-section" open>
             <summary>
               <div>
@@ -793,6 +836,7 @@ function TasksTab({
                   <strong>{task.title}</strong>
                   <br />
                   <small>{task.slug}</small>
+                  <br /><small>{speakingTemplateLabel(task.config.speakingTemplate)}</small>
                 </td>
                 <td>v{task.version}</td>
                 <td>
@@ -1110,6 +1154,7 @@ function PromptAuditTab({ data }: { data: Overview }) {
           </div>
         </div>
         <div className="prompt-task-summary">
+          <div><span>講述模板</span><strong>{speakingTemplateLabel(task.config.speakingTemplate)}</strong></div>
           <div>
             <span>識別名稱</span>
             <code>{task.slug}</code>
@@ -1760,6 +1805,8 @@ export function AdminDashboard({
             <button
               className={tab === item.id ? "active" : ""}
               key={item.id}
+              aria-label={item.label}
+              title={item.label}
               type="button"
               onClick={() => setTab(item.id)}
             >

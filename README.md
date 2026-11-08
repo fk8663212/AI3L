@@ -4,6 +4,8 @@
 >
 > 操作與資料規則見 [docs/MACRO_MICRO.md](docs/MACRO_MICRO.md)。原本給老師確認形式的 [public/demo/index.html](public/demo/index.html) 仍是獨立固定範例，不使用學生資料。
 
+老師建立任務時可選「時間／流程順序」，用於實作步驟或歷史事件，並配合對應的 Macro／Micro 與英文銜接提示。設定、學生操作及版本規則見 [docs/CHRONOLOGICAL_TEMPLATE.md](docs/CHRONOLOGICAL_TEMPLATE.md)。
+
 以論文與海報中的「視覺化 → 概念建構 → AI 擴充 → 語言鷹架 → 獨立口說」研究流程實作的繁體中文研究平台。專案支援完整本機部署，也保留 Vercel 雲端模式；學生端刻意只保留左側階段指示器與右側對話工作區，研究控制、供應商設定與匯出集中於管理後台。
 
 > 第一次本機部署請依照 [`docs/LOCAL_DEPLOYMENT.md`](docs/LOCAL_DEPLOYMENT.md) 操作。論文與海報已整理至 [`docs/research/`](docs/research/)。
