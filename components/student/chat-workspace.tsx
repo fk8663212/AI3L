@@ -1019,7 +1019,7 @@ function SentencePanel({
               className="textarea"
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
-              placeholder={speakingTemplate?.id === "chronological" ? "每行寫一句自己的英文，說明你實際做過或知道的內容。" : "I saw many red lanterns.\nVisitors bought pineapple cakes.\nThe market felt lively."}
+              placeholder={speakingTemplate?.id === "problem_solution" ? "每行寫一句自己的英文，描述你觀察到的情況、知道的原因或自己的處理想法。" : speakingTemplate?.id === "chronological" ? "每行寫一句自己的英文，說明你實際做過或知道的內容。" : "I saw many red lanterns.\nVisitors bought pineapple cakes.\nThe market felt lively."}
             />
           </div>
           <div className="stage-panel-row">

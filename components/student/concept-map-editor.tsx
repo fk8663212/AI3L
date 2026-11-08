@@ -185,7 +185,7 @@ export function ConceptMapEditor({
       <div className="artifact-card concept-map-card">
         <div className="artifact-card-body">
           <div className="concept-graph editable" tabIndex={0} aria-label="可拖曳編輯的概念圖">
-            <ConceptMapCanvas nodeCount={nodes.length} planeRef={graphRef}>
+            <ConceptMapCanvas nodeCount={nodes.length} planeRef={graphRef} editable>
             <ConceptEdgeLayer nodes={nodes} edges={edges} />
             {nodes.map((node) => (
               <div

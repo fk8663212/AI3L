@@ -1,6 +1,6 @@
 # Macro／Micro 正式流程
 
-本功能位於 `feature/macro-micro-integration`，從已修正錄音與第六階段 AI 的版本延伸。原 HTML Demo 繼續獨立保留；正式學習頁使用學生自己的已確認概念及 AI 輸出，沒有固定「入口、攤位、美食」資料。
+本功能已接入正式第 5、6 階段，從已修正錄音與第六階段 AI 的版本延伸。原 HTML Demo 繼續獨立保留；正式學習頁使用學生自己的已確認概念及 AI 輸出，沒有固定「入口、攤位、美食」資料。
 
 ## 老師與學生怎麼使用
 
@@ -16,11 +16,11 @@
 
 原有單層流程仍保留，尚未建立講述架構的紀錄可以沿用原本操作。系統記錄學生使用哪種視圖，但不自動分派研究組別。
 
-新任務可指定「空間／導覽」或「時間／流程」模板。已指定模板時，第 5 階段須先建立匹配的講述架構，第 6 階段再取得對應提示；舊任務未指定模板時維持原有行為。時間／流程的完整設定與資料版本說明見 [CHRONOLOGICAL_TEMPLATE.md](CHRONOLOGICAL_TEMPLATE.md)。
+新任務可指定「空間／導覽」、「時間／流程」或「因果／問題解決」模板。已指定模板時，第 5 階段須先建立匹配的講述架構，第 6 階段再取得對應提示；舊任務未指定模板時維持原有行為。完整設定與資料版本說明見 [CHRONOLOGICAL_TEMPLATE.md](CHRONOLOGICAL_TEMPLATE.md) 與 [PROBLEM_SOLUTION_TEMPLATE.md](PROBLEM_SOLUTION_TEMPLATE.md)。
 
 ## 資料與研究紀錄
 
-- `speaking_outline`：保存在第 5 階段，包含段落順序、中英文名稱、各段節點代號、AI 原始分段、學生修改時間、來源概念圖內容簽章及 `macro-micro-v1` 版本。
+- `speaking_outline`：保存在第 5 階段，包含段落順序、中英文名稱、各段節點代號、AI 原始分段、學生修改時間及來源概念圖內容簽章。未指定模板沿用 `macro-micro-v1`；指定模板使用 `macro-micro-v2`，另保存模板快照、組織種類（適用時）與待補充提醒。
 - Micro 直接從已確認概念圖抽取節點與關係，不另造新的概念或邊；伺服器拒絕未知節點、重複段落代號、空段落與漏掉的概念。
 - `sentence_scaffold`：保留原有逐句分級提示，另加入 `paragraphHints` 與所依據的 `speakingOutlineId`。段落修改期間尚未完成的 AI 輸出會被丟棄，避免錯套提示。
 - `speaking_progress` 與 `speaking_navigation` 訊息：保存最後選取的段落、單層／雙層視圖、提示是否實際顯示，以及所依據的架構版本；重新整理可回到選取的段落。

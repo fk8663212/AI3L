@@ -70,12 +70,14 @@ export function ConceptMapCanvas({
   nodeCount,
   children,
   planeRef,
+  editable = false,
 }: {
   nodeCount: number;
   children: ReactNode;
   planeRef?: Ref<HTMLDivElement>;
+  editable?: boolean;
 }) {
-  const spacious = nodeCount > 2 || Boolean(planeRef);
+  const spacious = nodeCount > 2 || editable;
   return (
     <div
       className="concept-map-canvas"

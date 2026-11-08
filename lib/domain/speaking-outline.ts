@@ -110,6 +110,10 @@ export function outlineGenerationSchema(map: ConceptMap, template?: SpeakingTemp
     organization: z.enum(["procedural", "chronological"]),
     informationGaps,
   });
+  if (template?.id === "problem_solution") return schema.safeExtend({
+    organization: z.enum(["causal", "problem_solution"]),
+    informationGaps,
+  });
   return template ? schema.safeExtend({ informationGaps }) : schema;
 }
 

@@ -780,8 +780,9 @@ function TasksTab({
                   }
                   setSpeakingTemplateId(next);
                 }}>
-                <option value="spatial">空間／導覽順序</option>
-                <option value="chronological">時間／流程順序</option>
+                {Object.entries(SPEAKING_TEMPLATES).map(([id, template]) => (
+                  <option key={id} value={id}>{template.label}</option>
+                ))}
                 <option value="legacy">原有講述架構（未指定模板）</option>
               </select>
               <small>發布後固定為任務版本；既有自訂階段說明會保留。</small>
@@ -791,6 +792,7 @@ function TasksTab({
               <p>{SPEAKING_TEMPLATES[speakingTemplateId].description}</p>
               <p>{SPEAKING_TEMPLATES[speakingTemplateId].sequence}</p>
               {speakingTemplateId === "chronological" ? <small>歷史事件依背景、事件發展與結果安排；缺少的資料會提醒補充，不會補出未發生的步驟或成果。</small> : null}
+              {speakingTemplateId === "problem_solution" ? <small>只有因果資料時不硬加解法；缺少依據會提醒補充，並區分可能原因、已確認原因、預期成效與實際結果。</small> : null}
               <button className="button secondary" type="button" onClick={() => {
                 if (window.confirm("套用會取代目前七個階段的說明。要套用這個模板的預設說明嗎？")) {
                   setStageConfig((current) => applySpeakingTemplateInstructions(current, speakingTemplateId));

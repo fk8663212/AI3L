@@ -2,7 +2,7 @@ import { z } from "zod";
 import { STAGES, type StageId } from "@/lib/domain/stages";
 import type { TaskConfig } from "@/lib/domain/default-task";
 
-export const speakingTemplateIdSchema = z.enum(["spatial", "chronological"]);
+export const speakingTemplateIdSchema = z.enum(["spatial", "chronological", "problem_solution"]);
 export const speakingTemplateSchema = z.object({
   id: speakingTemplateIdSchema,
   version: z.literal("1.0.0"),
@@ -23,6 +23,12 @@ export const SPEAKING_TEMPLATES = {
     english: "Chronological / Procedural Order",
     description: "適合實作、實驗、料理過程與歷史事件。",
     sequence: "準備工作 → 核心步驟 → 狀況與排除（有資料時）→ 產出與檢驗",
+  },
+  problem_solution: {
+    label: "因果／問題解決順序",
+    english: "Cause and Effect / Problem-Solution Order",
+    description: "適合問題探討、工程除錯、案例分析與 SDGs 專案。",
+    sequence: "問題現況與背景 → 有依據的成因 → 解決策略與行動 → 預期成效或已觀察結果",
   },
 } as const;
 
@@ -56,6 +62,22 @@ export function speakingTemplateLabel(value: unknown) {
 export function speakingTemplateInstructions(
   id: SpeakingTemplateId,
 ): Record<StageId, string> {
+  if (id === "problem_solution") return {
+    pretest:
+      "請用英文說明本次任務中你觀察到的情況與自己的想法。先說你目前想得到的內容，不需要擔心文法。",
+    visualization:
+      "畫下你觀察到的問題情境，包含相關人物、物件、現象或自己的處理經驗；上傳後先獨立標記至少三個你原本就知道的英文詞彙。",
+    self_concept_map:
+      "先不用 AI，在紙上手繪概念與有方向的關係，標出你知道的原因、影響或處理方式；用關係詞區分已知與推測，不知道的部分可留待確認，再拍照上傳。",
+    image_analysis:
+      "核對 AI 標記的情況、物件與行動是否符合原圖或實際經驗，逐項接受、修改或拒絕；圖畫沒有提供的原因與成效不要當成事實。",
+    ai_concept_map:
+      "比較 AI 概念圖與自己的原圖，只保留有依據的概念與關係；確認後建立因果／問題解決講述架構，檢查原因與解法的依據，並區分預期成效與已觀察結果。",
+    sentence_scaffold:
+      "先寫下至少三個自己的英文句子，再依目前的講述架構取得分級提示，最後完成一段口說練習。",
+    posttest:
+      "現在不會顯示先前的提示。請再次獨立用英文說明相同任務中你觀察到的情況與自己的想法。",
+  };
   const temporal = id === "chronological";
   return {
     pretest: temporal

@@ -42,6 +42,7 @@ import {
 import { speakingTemplateSelection } from "@/lib/domain/speaking-templates";
 import { encryptSecret } from "@/lib/security/crypto";
 import { conceptMapOutput, sentenceScaffoldOutput } from "./fixtures";
+import { causalMap, causalSections, problemSolutionMap, problemSolutionSections, problemSolutionOriginals, problemSolutionHints } from "../fixtures/problem-solution";
 const map = conceptMapOutput();
 const sections = [
   {
@@ -134,7 +135,7 @@ beforeEach(async () => {
 });
 
 describe("Macro / Micro in the real student flow", () => {
-  it("saves the task template, preserves it for older clients and revisions, and locks published settings", async () => {
+  it.each(["chronological", "problem_solution"] as const)("saves %s, preserves it for older clients and revisions, and locks published settings", async (templateId) => {
     const input = {
       title: "Windmill activity",
       slug: "windmill-" + randomUUID(),
@@ -148,14 +149,14 @@ describe("Macro / Micro in the real student flow", () => {
     };
     const id = await saveTaskDraft({
       ...input,
-      speakingTemplateId: "chronological",
+      speakingTemplateId: templateId,
     });
     await saveTaskDraft({ ...input, id }); // Compatibility with an older API client.
     const task = await getDb().query.tasks.findFirst({
       where: eq(tasks.id, id),
     });
     expect(task?.config.speakingTemplate).toEqual(
-      speakingTemplateSelection("chronological"),
+      speakingTemplateSelection(templateId),
     );
     expect(JSON.stringify(task?.config.promptConfig)).not.toContain("大稻埕");
     await getDb()
@@ -175,7 +176,53 @@ describe("Macro / Micro in the real student flow", () => {
           where: eq(tasks.id, revision.id),
         })
       )?.config.speakingTemplate,
-    ).toEqual(speakingTemplateSelection("chronological"));
+    ).toEqual(speakingTemplateSelection(templateId));
+  });
+
+  it.each([
+    { organization: "problem_solution", map: problemSolutionMap, sections: problemSolutionSections, hints: problemSolutionHints },
+    { organization: "causal", map: causalMap, sections: causalSections, hints: problemSolutionHints.slice(0, 2) },
+  ])("builds, edits, exports and links $organization hints without reusing a stale scaffold", async ({ organization, map, sections, hints }) => {
+    const template = speakingTemplateSelection("problem_solution")!;
+    const originals = organization === "causal"
+      ? ["There is mixed waste in our classroom.", "The labels are unclear.", "Unclear labels contribute to mixed waste."]
+      : problemSolutionOriginals;
+    await getDb().update(tasks).set({ config: { ...DEFAULT_TASK_CONFIG, speakingTemplate: template } }).where(eq(tasks.id, taskId));
+    await replaceArtifactData({ sessionId: auth.id!, stageId: "ai_concept_map", type: "concept_decisions", data: { accepted: map, pending: [], rejectedIds: [] } });
+    ai.generate.mockImplementation(async (input) => ({
+      value: input.schemaName === "speaking_outline"
+        ? { sections, organization, informationGaps: ["請確認成因的觀察依據。"] }
+        : {
+            ...sentenceScaffoldOutput(),
+            sentences: originals.map((original, index) => ({ index, original, question: "你觀察到什麼？", keywords: [{ word: "labels", translation: "標示" }], frame: "One observation is …", example: { sentence: original, translation: "固定測試句" } })),
+            transitions: ["Because", "As a result"],
+            paragraphHints: hints,
+          },
+    }));
+    expect((await current()).gate.code).toBe("OUTLINE_REQUIRED");
+    expect((await act({ action: "build_speaking_outline" })).status).toBe(200);
+    expect(ai.generate.mock.calls[0][0].prompt).toContain("不是因果證據");
+    const initial = (await current()).artifacts.find(item => item.type === "speaking_outline")!;
+    expect(initial.data).toMatchObject({ speakingTemplate: template, organization, informationGaps: ["請確認成因的觀察依據。"], schemaVersion: "macro-micro-v2" });
+    const edited = [{ ...sections[0], titleZh: "我觀察到的問題" }, ...sections.slice(1)];
+    expect((await act({ action: "save_speaking_outline", sections: edited })).status).toBe(200);
+    const outline = (await current()).artifacts.find(item => item.type === "speaking_outline")!;
+    expect(outline.data.generatedSections).toEqual(sections);
+    expect(outline.data.organization).toBe(organization);
+    expect((await act({ action: "complete_stage", stage: "ai_concept_map", stateVersion: (await current()).session.stateVersion })).status).toBe(200);
+    expect((await act({ action: "run_ai", stage: "sentence_scaffold" })).error.code).toBe("SENTENCES_REQUIRED");
+    await act({ action: "save_sentences", phase: "draft", sentences: originals, hintLevel: 0, idempotencyKey: randomUUID() });
+    expect((await act({ action: "run_ai", stage: "sentence_scaffold" })).status).toBe(200);
+    expect(ai.generate.mock.calls.at(-1)![0].prompt).toContain("已有觀察證據的結果才用");
+    const scaffold = (await current()).artifacts.find(item => item.type === "sentence_scaffold")!;
+    expect(scaffold.data).toMatchObject({ speakingOutlineId: outline.id, speakingTemplate: template, paragraphHints: hints });
+    expect(JSON.stringify(await exportResearchData(taskId))).toContain(organization);
+    expect((await act({ action: "save_speaking_outline", sections: [...edited].reverse() })).status).toBe(200);
+    expect((await current()).gate.code).toBe("AI_OUTPUT_REQUIRED");
+    expect((await current()).artifacts.find(item => item.type === "sentences")?.data.originals).toEqual(originals);
+    await getDb().update(studentSessions).set({ currentStage: "posttest" }).where(eq(studentSessions.id, auth.id!));
+    expect((await current()).artifacts.some(item => ["speaking_outline", "sentence_scaffold"].includes(item.type))).toBe(false);
+    expect((await act({ action: "build_speaking_outline" })).error.code).toBe("STAGE_LOCKED");
   });
 
   it("builds and exports a procedural outline, requires it before hints, and conceals it in the posttest", async () => {

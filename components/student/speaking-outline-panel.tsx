@@ -32,6 +32,13 @@ import {
 
 type Perform = (body: Record<string, unknown>) => Promise<SessionView | null>;
 
+const ORGANIZATION_LABELS: Record<string, string> = {
+  procedural: "實作步驟",
+  chronological: "事件先後",
+  causal: "原因與影響",
+  problem_solution: "問題與解決",
+};
+
 export function MacroMicroCard({
   map,
   outline,
@@ -109,18 +116,18 @@ export function MacroMicroCard({
         <div>
           <p className="eyebrow">My speaking plan</p>
           <h3>
-            {speakingTemplate?.id === "chronological"
+            {speakingTemplate?.id === "problem_solution"
+              ? organization === "causal" ? "把原因與影響說清楚" : "把問題、原因與解法說清楚"
+              : speakingTemplate?.id === "chronological"
               ? "把過程排成清楚的順序"
               : "把想法排成一段故事"}
           </h3>
           {speakingTemplate ? (
             <span className="tag">
               {SPEAKING_TEMPLATES[speakingTemplate.id].label}
-              {organization === "procedural"
-                ? " · 實作步驟"
-                : organization === "chronological"
-                  ? " · 事件先後"
-                  : ""}
+              {organization && ORGANIZATION_LABELS[organization]
+                ? ` · ${ORGANIZATION_LABELS[organization]}`
+                : ""}
             </span>
           ) : null}
         </div>
@@ -165,7 +172,9 @@ export function MacroMicroCard({
       ) : (
         <>
           <p className="panel-hint">
-            {speakingTemplate?.id === "chronological"
+            {speakingTemplate?.id === "problem_solution"
+              ? "依已確認的原因、影響與處理資料安排講述；選一段，Micro 會顯示相關概念與關係。預期成效和已觀察結果要分清楚。"
+              : speakingTemplate?.id === "chronological"
               ? "依已確認的先後安排講述；選一段，Micro 會顯示這個步驟或事件的細節。"
               : "Macro 決定先說什麼、再說什麼；選一段，Micro 會顯示這一段要說的細節。"}
           </p>
