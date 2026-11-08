@@ -1,3 +1,5 @@
+import { speakingTemplateSelection, type SpeakingTemplateChoice } from "@/lib/domain/speaking-templates";
+import { createTaskSlug, normalizeTaskSlug, taskSlugProblem } from "@/lib/domain/task-slug";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import {
@@ -336,7 +338,7 @@ export async function saveTaskDraft(input: {
   speakingTemplateId?: SpeakingTemplateChoice;
   id?: string;
   title: string;
-  slug: string;
+  slug?: string;
   description: string;
   provider: AIProviderName;
   modelId: string;
@@ -346,6 +348,9 @@ export async function saveTaskDraft(input: {
   promptConfig: TaskConfig["promptConfig"];
 }) {
   const db = getDb();
+  const requestedSlug = normalizeTaskSlug(input.slug ?? "");
+  const slugProblem = taskSlugProblem(requestedSlug);
+  if (slugProblem) throw new ApiError(400, "INVALID_TASK_SLUG", slugProblem);
   const config = normalizeTaskConfig({
     ...DEFAULT_TASK_CONFIG,
     speakingTemplate: speakingTemplateSelection(input.speakingTemplateId),
@@ -362,6 +367,7 @@ export async function saveTaskDraft(input: {
     if (current.status !== "draft") {
       throw new ApiError(409, "TASK_IMMUTABLE", "已發布任務不可直接修改。");
     }
+    const slug = requestedSlug || current.slug;
     const savedConfig = normalizeTaskConfig({
       ...config,
       speakingTemplate: input.speakingTemplateId === undefined
@@ -369,7 +375,7 @@ export async function saveTaskDraft(input: {
     });
     const duplicate = await db.query.tasks.findFirst({
       where: and(
-        eq(tasks.slug, input.slug),
+        eq(tasks.slug, slug),
         eq(tasks.version, current.version),
       ),
     });
@@ -377,14 +383,14 @@ export async function saveTaskDraft(input: {
       throw new ApiError(
         409,
         "TASK_SLUG_EXISTS",
-        "此識別名稱與版本已存在，請改用不同的識別名稱。",
+        `「${slug}」已用於任務 v${current.version}。請改用其他代號，或保留原本的代號。`,
       );
     }
     await db
       .update(tasks)
       .set({
         title: input.title,
-        slug: input.slug,
+        slug,
         description: input.description,
         provider: input.provider,
         modelId: input.modelId,
@@ -396,14 +402,15 @@ export async function saveTaskDraft(input: {
     return input.id;
   }
 
+  const slug = requestedSlug || createTaskSlug();
   const duplicate = await db.query.tasks.findFirst({
-    where: and(eq(tasks.slug, input.slug), eq(tasks.version, 1)),
+    where: and(eq(tasks.slug, slug), eq(tasks.version, 1)),
   });
   if (duplicate) {
     throw new ApiError(
       409,
       "TASK_SLUG_EXISTS",
-      "此識別名稱已存在；若要修改，請編輯既有草稿或使用新的識別名稱。",
+      `「${slug}」已被使用。可留空讓系統自動產生新代號；延續原任務請編輯草稿或建立下一版。`,
     );
   }
 
@@ -413,7 +420,7 @@ export async function saveTaskDraft(input: {
       familyId: crypto.randomUUID(),
       version: 1,
       title: input.title,
-      slug: input.slug,
+      slug,
       description: input.description,
       provider: input.provider,
       modelId: input.modelId,
@@ -835,4 +842,3 @@ async function audit(
     detail,
   });
 }
-import { speakingTemplateSelection, type SpeakingTemplateChoice } from "@/lib/domain/speaking-templates";

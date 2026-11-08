@@ -103,11 +103,7 @@ const bodySchema = z.discriminatedUnion("action", [
     speakingTemplateId: speakingTemplateIdSchema.or(z.literal("legacy")).optional(),
     id: z.string().uuid().optional(),
     title: z.string().min(2).max(180),
-    slug: z
-      .string()
-      .min(3)
-      .max(120)
-      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+    slug: z.string().max(500).optional(),
     description: z.string().min(10).max(2_000),
     provider: providerSchema,
     modelId: z.string().min(1).max(120),

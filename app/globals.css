@@ -4803,6 +4803,11 @@ button {
 /* Speaking order and the selected paragraph share one source concept map. */
 .speaking-outline-panel { display: grid; gap: 14px; min-width: 0; }
 .speaking-template-settings { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(0, 2fr); gap: 20px; padding: 20px; border: 1px solid var(--line); border-radius: 16px; background: var(--canvas); }
+.task-slug-controls { display: flex; gap: 8px; align-items: start; }
+.task-slug-controls .input { min-width: 0; flex: 1; }
+.task-slug-controls .button { flex: none; white-space: nowrap; }
+.field .field-validation-error { color: var(--danger); font-weight: 700; }
+.task-editor-form [aria-invalid="true"] { border-color: var(--danger); }
 .speaking-template-description { display: grid; justify-items: start; gap: 8px; }
 .speaking-template-description p { margin: 0; }
 .speaking-template-description small { color: var(--ink-soft); }

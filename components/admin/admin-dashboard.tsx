@@ -48,6 +48,7 @@ import {
 } from "@/lib/domain/speaking-templates";
 import { promptConfigForSpeakingTemplate } from "@/lib/ai/prompts";
 import { taskDeletionConfirmation } from "@/lib/domain/task-deletion";
+import { createTaskSlug, normalizeTaskSlug, taskSlugProblem } from "@/lib/domain/task-slug";
 import {
   MIN_STAGE_OVERRIDE_REASON_LENGTH,
   stageOverrideReasonReady,
@@ -497,12 +498,14 @@ function TasksTab({
   data,
   action,
   setCodes,
+  actionError,
 }: {
   data: Overview;
   action: (
     payload: Record<string, unknown>,
   ) => Promise<Record<string, unknown> | null>;
   setCodes: (value: Array<{ code: string; label: string }>) => void;
+  actionError?: string;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
@@ -519,6 +522,18 @@ function TasksTab({
     () => promptConfigForSpeakingTemplate(structuredClone(data.taskDefaults.promptConfig), speakingTemplateSelection("spatial")),
   );
   const [message, setMessage] = useState("");
+  const [formError, setFormError] = useState<{ fieldId: string; message: string } | null>(null);
+  const [savingTask, setSavingTask] = useState(false);
+  const normalizedSlug = normalizeTaskSlug(slug);
+  const editingVersion = data.tasks.find(task => task.id === editingId)?.version ?? 1;
+  const duplicateSlug = normalizedSlug && data.tasks.some(task => task.slug === normalizedSlug && task.version === editingVersion && task.id !== editingId);
+  const slugProblem = taskSlugProblem(slug) ?? (duplicateSlug
+    ? `「${normalizedSlug}」已用於任務 v${editingVersion}。${editingId ? "請保留原代號或改用其他代號。" : "可留空由系統自動產生，或編輯原有任務。"}`
+    : null);
+
+  function fieldError(id: string) {
+    return formError?.fieldId === id ? <small id={`${id}-error`} className="field-validation-error" role="alert">{formError.message}</small> : null;
+  }
   const [deleteTarget, setDeleteTarget] = useState<
     Overview["tasks"][number] | null
   >(null);
@@ -526,6 +541,7 @@ function TasksTab({
   const [deleting, setDeleting] = useState(false);
 
   function resetEditor() {
+    setFormError(null);
     setEditingId(null);
     setTitle("");
     setSlug("");
@@ -539,6 +555,7 @@ function TasksTab({
   }
 
   function editDraft(task: Overview["tasks"][number]) {
+    setFormError(null);
     setEditingId(task.id);
     setTitle(task.title);
     setSlug(task.slug);
@@ -559,11 +576,36 @@ function TasksTab({
 
   async function save(event: FormEvent) {
     event.preventDefault();
+    const form = event.currentTarget as HTMLFormElement;
+    if (savingTask) return;
+    if (slugProblem) {
+      setFormError({ fieldId: "task-slug", message: slugProblem });
+      form.querySelector<HTMLInputElement>("#task-slug")?.focus();
+      return;
+    }
+    const invalid = form.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input:invalid, textarea:invalid, select:invalid");
+    if (invalid) {
+      const label = invalid.labels?.[0]?.textContent?.trim() ?? "欄位";
+      const problem = invalid.validity.valueMissing ? `請填寫「${label}」。`
+        : invalid.validity.tooShort && "minLength" in invalid ? `「${label}」至少需要 ${invalid.minLength} 個字元，目前 ${invalid.value.length} 個。`
+        : invalid.id === "task-prompt-version" ? "Prompt 版本可填 1.0.0 或 pilot-a；只接受英文字母、數字、句點、底線與連字號。"
+        : `請檢查「${label}」的格式與字數。`;
+      setFormError({ fieldId: invalid.id, message: problem });
+      const details = invalid.closest("details");
+      if (details) details.open = true;
+      invalid.focus();
+      invalid.scrollIntoView({ block: "center" });
+      return;
+    }
+    setFormError(null);
+    setSlug(normalizedSlug);
+    setSavingTask(true);
+    try {
     const result = await action({
       action: "save_task",
       id: editingId ?? undefined,
       title,
-      slug,
+      slug: normalizedSlug || undefined,
       description,
       provider,
       modelId,
@@ -576,6 +618,9 @@ function TasksTab({
     if (result) {
       setMessage(editingId ? "任務草稿已更新。" : "任務草稿已建立。");
       resetEditor();
+    }
+    } finally {
+      setSavingTask(false);
     }
   }
 
@@ -603,12 +648,15 @@ function TasksTab({
           ) : null}
         </div>
 
-        <form className="task-editor-form" onSubmit={save}>
+        {actionError ? <div className="error-banner" role="alert">{actionError}</div> : null}
+        <form className="task-editor-form" noValidate onSubmit={save} onInput={() => setFormError(null)}>
           <div className="split-grid">
             <div className="field">
               <label htmlFor="task-title">任務名稱</label>
               <input
                 id="task-title"
+                aria-invalid={formError?.fieldId === "task-title"}
+                aria-describedby={formError?.fieldId === "task-title" ? "task-title-error" : undefined}
                 className="input"
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}
@@ -617,26 +665,33 @@ function TasksTab({
                 maxLength={180}
                 required
               />
+              {fieldError("task-title")}
             </div>
             <div className="field">
-              <label htmlFor="task-slug">唯一識別名稱</label>
+              <label htmlFor="task-slug">唯一識別名稱（選填）</label>
+              <div className="task-slug-controls">
               <input
                 id="task-slug"
                 className="input"
                 value={slug}
                 onChange={(event) => setSlug(event.target.value)}
-                placeholder="例如：dadaocheng-pilot-2"
-                pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
-                minLength={3}
+                onBlur={(event) => setSlug(normalizeTaskSlug(event.target.value))}
+                placeholder={editingId ? "留空保留原本代號" : "留空，由系統自動產生"}
+                aria-invalid={Boolean(slugProblem || formError?.fieldId === "task-slug")}
+                aria-describedby={slugProblem || formError?.fieldId === "task-slug" ? "task-slug-help task-slug-error" : "task-slug-help"}
                 maxLength={120}
-                required
               />
-              <small>只能使用小寫英文字母、數字與連字號，不可與現有任務重複。</small>
+              <button type="button" className="button secondary" onClick={() => { setSlug(createTaskSlug()); setFormError(null); }}>自動產生</button>
+              </div>
+              <small id="task-slug-help">{editingId ? "留空會保留原本代號。" : "可留空，系統會自動產生代號。"}自訂可填 friedrice 或 fried-rice-01；大寫、空白與底線會自動整理。這不是學生登入代碼。</small>
+              {slugProblem ? <small id="task-slug-error" className="field-validation-error" role="alert">{slugProblem}</small> : fieldError("task-slug")}
             </div>
             <div className="field" style={{ gridColumn: "1 / -1" }}>
               <label htmlFor="task-description">研究任務摘要</label>
               <textarea
                 id="task-description"
+                aria-invalid={formError?.fieldId === "task-description"}
+                aria-describedby={formError?.fieldId === "task-description" ? "task-description-help task-description-error" : "task-description-help"}
                 className="textarea"
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
@@ -645,6 +700,8 @@ function TasksTab({
                 maxLength={2000}
                 required
               />
+              <small id="task-description-help">至少 10 個字元，目前 {description.length} 個。請簡述本次活動或研究目的。</small>
+              {fieldError("task-description")}
             </div>
             <div className="field">
               <label htmlFor="task-provider">供應商</label>
@@ -669,6 +726,9 @@ function TasksTab({
               <select
                 id="task-model"
                 className="select"
+                required
+                aria-invalid={formError?.fieldId === "task-model"}
+                aria-describedby={formError?.fieldId === "task-model" ? "task-model-error" : undefined}
                 value={modelId}
                 onChange={(event) => setModelId(event.target.value)}
               >
@@ -684,19 +744,23 @@ function TasksTab({
                     </option>
                   ))}
               </select>
+              {fieldError("task-model")}
             </div>
             <div className="field">
               <label htmlFor="task-prompt-version">Prompt 版本</label>
               <input
                 id="task-prompt-version"
+                aria-invalid={formError?.fieldId === "task-prompt-version"}
+                aria-describedby={formError?.fieldId === "task-prompt-version" ? "task-prompt-version-error" : undefined}
                 className="input"
                 value={promptVersion}
                 onChange={(event) => setPromptVersion(event.target.value)}
-                pattern="[A-Za-z0-9][A-Za-z0-9._-]*"
+                pattern={"[A-Za-z0-9][A-Za-z0-9._\\-]*"}
                 placeholder="例如：1.0.0 或 pilot-a"
                 maxLength={32}
                 required
               />
+              {fieldError("task-prompt-version")}
               <small>用來識別本次研究採用的 Prompt 組合；發布後鎖定。</small>
             </div>
           </div>
@@ -752,6 +816,8 @@ function TasksTab({
                   <textarea
                     className="textarea"
                     id={`instruction-${stage.id}`}
+                    aria-invalid={formError?.fieldId === `instruction-${stage.id}`}
+                    aria-describedby={formError?.fieldId === `instruction-${stage.id}` ? `instruction-${stage.id}-error` : undefined}
                     value={stageConfig[stage.id].instruction}
                     onChange={(event) =>
                       setStageConfig((current) => ({
@@ -766,6 +832,7 @@ function TasksTab({
                     maxLength={2000}
                     required
                   />
+                  {fieldError(`instruction-${stage.id}`)}
                 </div>
               ))}
             </div>
@@ -789,6 +856,8 @@ function TasksTab({
                   <textarea
                     className="textarea task-prompt-textarea"
                     id={`prompt-${field.key}`}
+                    aria-invalid={formError?.fieldId === `prompt-${field.key}`}
+                    aria-describedby={formError?.fieldId === `prompt-${field.key}` ? `prompt-${field.key}-error` : undefined}
                     value={promptConfig[field.key]}
                     onChange={(event) =>
                       setPromptConfig((current) => ({
@@ -801,15 +870,16 @@ function TasksTab({
                     maxLength={20000}
                     required
                   />
+                  {fieldError(`prompt-${field.key}`)}
                 </div>
               ))}
             </div>
           </details>
 
           <div className="task-editor-actions">
-            <button className="button" type="submit">
+            <button className="button" type="submit" disabled={savingTask}>
               {editingId ? <CheckCircle2 size={16} /> : <Plus size={16} />}
-              {editingId ? "儲存草稿變更" : "建立可編輯草稿"}
+              {savingTask ? "正在保存…" : editingId ? "儲存草稿變更" : "建立可編輯草稿"}
             </button>
             <span>
               發布前請到「Prompt 與階段」進行最終稽核。
@@ -1847,7 +1917,7 @@ export function AdminDashboard({
           <ProvidersTab data={data} action={action} />
         ) : null}
         {tab === "tasks" ? (
-          <TasksTab data={data} action={action} setCodes={setCodes} />
+          <TasksTab data={data} action={action} setCodes={setCodes} actionError={error} />
         ) : null}
         {tab === "codes" ? (
           <AccessCodesTab data={data} action={action} setCodes={setCodes} />

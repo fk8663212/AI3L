@@ -6,6 +6,8 @@
 
 老師建立任務時可選「時間／流程順序」，用於實作步驟或歷史事件，並配合對應的 Macro／Micro 與英文銜接提示。設定、學生操作及版本規則見 [docs/CHRONOLOGICAL_TEMPLATE.md](docs/CHRONOLOGICAL_TEMPLATE.md)。
 
+建立任務的「唯一識別名稱」可留空，由系統自動產生；自訂可填 `friedrice` 或 `fried-rice-01`。表單會直接標出格式或字數錯誤的欄位，研究任務摘要至少需要 10 個字元。
+
 以論文與海報中的「視覺化 → 概念建構 → AI 擴充 → 語言鷹架 → 獨立口說」研究流程實作的繁體中文研究平台。專案支援完整本機部署，也保留 Vercel 雲端模式；學生端刻意只保留左側階段指示器與右側對話工作區，研究控制、供應商設定與匯出集中於管理後台。
 
 > 第一次本機部署請依照 [`docs/LOCAL_DEPLOYMENT.md`](docs/LOCAL_DEPLOYMENT.md) 操作。論文與海報已整理至 [`docs/research/`](docs/research/)。
