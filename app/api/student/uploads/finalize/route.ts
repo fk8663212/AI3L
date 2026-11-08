@@ -12,6 +12,7 @@ import {
 } from "@/lib/security/request";
 import { getStudentClaims } from "@/lib/security/session";
 import { analyzeRecording } from "@/lib/ai/voice-service";
+import { voiceActivitySchema } from "@/lib/domain/voice-activity";
 import {
   getSessionView,
   markRecordingAnalysisFailed,
@@ -41,6 +42,7 @@ const bodySchema = z.object({
   ]),
   url: z.string().url(),
   durationSeconds: z.number().min(1).max(180).optional(),
+  voice: voiceActivitySchema.optional(),
 });
 
 function extensionForMime(mime: string): string {
@@ -202,6 +204,7 @@ export async function POST(request: Request) {
             durationSeconds,
             stagingPathname: metadata.pathname,
             stagingUrl: body.url,
+            ...(body.voice ? { voice: body.voice } : {}),
           },
         },
       });
@@ -232,6 +235,7 @@ export async function POST(request: Request) {
             filename: `${body.stage}.${extension}`,
             durationSeconds,
             audioArtifactId: audioArtifact.id,
+            voice: body.voice,
           });
           await saveRecordingAnalysis({
             sessionId: claims.sessionId,

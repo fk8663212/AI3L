@@ -1,5 +1,19 @@
 import { expect, test } from "@playwright/test";
 
+test("permits the local blob workers used by HEIC conversion", async ({ page }) => {
+  await page.goto("/");
+  const message = await page.evaluate(() => new Promise<string>((resolve, reject) => {
+    const url = URL.createObjectURL(new Blob(["onmessage = () => postMessage('worker-ready');"], { type: "text/javascript" }));
+    const worker = new Worker(url);
+    const cleanup = () => { worker.terminate(); URL.revokeObjectURL(url); };
+    const timer = setTimeout(() => { cleanup(); reject(new Error("Blob worker did not start")); }, 5000);
+    worker.onmessage = event => { clearTimeout(timer); cleanup(); resolve(String(event.data)); };
+    worker.onerror = () => { clearTimeout(timer); cleanup(); reject(new Error("Blob worker was blocked")); };
+    worker.postMessage("start");
+  }));
+  expect(message).toBe("worker-ready");
+});
+
 test("student entry keeps the research flow focused", async ({ page }, testInfo) => {
   await page.goto("/");
   await expect(page).toHaveTitle(/AI3L Speaking Lab/);

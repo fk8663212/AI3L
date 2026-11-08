@@ -715,7 +715,7 @@ function AIConceptPanel({
 
       <div className="panel-column concept-review-decisions">
       <StepHeading step={2} title="審核 AI 新增的概念與關係" done={reviewed} />
-      <p className="panel-hint">逐項保留或移除，概念圖會同步更新。藍色是你原有的，橘色是 AI 新增的；移除概念時，相連關係也會一起移除。</p>
+      <p className="panel-hint">逐項保留或移除，概念圖會同步更新。藍色是你原有的，橘色是 AI 新增的；移除概念時，相連關係也會一起移除。確認後，可在下方步驟 3 直接拖曳概念、修改關係詞或連接概念。</p>
       <div className="review-list" tabIndex={0} role="region" aria-label="AI 新增項目審核清單">
         {aiItems.map((item) => {
           const isNode = "labelEn" in item;

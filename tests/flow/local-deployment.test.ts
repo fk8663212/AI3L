@@ -81,13 +81,31 @@ function audioRequest(sessionId: string, stage = "pretest", pathname?: string) {
   form.set("file", new File(["local recording"], "recording.wav", { type: "audio/wav" }));
   return new Request("http://localhost/api/student/uploads/local", { method: "POST", body: form });
 }
-async function finish(url: string) {
-  const response = await finalize(new Request("http://localhost/api/student/uploads/finalize", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "audio", stage: "pretest", url, durationSeconds: 35 }) }));
+async function finish(url: string, voice?: { voicedSeconds: number; peakLevel: number }) {
+  const response = await finalize(new Request("http://localhost/api/student/uploads/finalize", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "audio", stage: "pretest", url, durationSeconds: 35, ...(voice ? { voice } : {}) }) }));
   await Promise.all(background.jobs.splice(0));
   return response;
 }
 
 describe("real local file lifecycle with the real stage services", () => {
+  it("retains silence measurements for local uploads and admin retries without calling speech AI", async () => {
+    const id = await student();
+    const uploaded = await upload(audioRequest(id));
+    const { data } = await uploaded.json();
+    const voice = { voicedSeconds: 0.3, peakLevel: 0.004 };
+    expect((await finish(data.url, voice)).status).toBe(200);
+    const audio = (await getDb().query.artifacts.findMany({ where: eq(artifacts.sessionId, id) })).find(row => row.type === "audio")!;
+    expect(audio.data.voice).toEqual(voice);
+    expect(audio.data.stagingUrl).toBe(data.url);
+    expect(analysis.transcribe).not.toHaveBeenCalled();
+    expect(analysis.evaluate).not.toHaveBeenCalled();
+    await getDb().update(artifacts).set({ data: { ...audio.data, analysisStatus: "failed" } }).where(eq(artifacts.id, audio.id));
+    expect(await retryRecordingAnalysis(audio.id)).toEqual({ status: "ready" });
+    expect(analysis.transcribe).not.toHaveBeenCalled();
+    expect(analysis.evaluate).not.toHaveBeenCalled();
+    expect(cloud.call).not.toHaveBeenCalled();
+  });
+
   it("enforces sign-in, consent, stage and ownership before storing a file", async () => {
     const id = await student(false);
     login.sessionId = null;

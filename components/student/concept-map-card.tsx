@@ -71,11 +71,13 @@ export function ConceptMapCanvas({
   children,
   planeRef,
   editable = false,
+  overlay,
 }: {
   nodeCount: number;
   children: ReactNode;
   planeRef?: Ref<HTMLDivElement>;
   editable?: boolean;
+  overlay?: ReactNode;
 }) {
   const spacious = nodeCount > 2 || editable;
   return (
@@ -90,6 +92,7 @@ export function ConceptMapCanvas({
       <div className="concept-map-plane" ref={planeRef}>
         {children}
       </div>
+      {overlay}
     </div>
   );
 }

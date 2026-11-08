@@ -1,18 +1,37 @@
 "use client";
 
 import { uploadStudentFile } from "@/lib/client/upload-student-file";
-import { Mic, Pause, RotateCcw, UploadCloud } from "lucide-react";
 import { fixWebmDuration } from "@fix-webm-duration/fix";
+import { LoaderCircle, Mic, Pause, RotateCcw, UploadCloud, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { StageId } from "@/lib/domain/stages";
 import { normalizeAudioMimeType } from "@/lib/domain/recordings";
+import {
+  isSilentRecording,
+  rmsLevel,
+  VOICE_LEVEL_THRESHOLD,
+  type VoiceActivity,
+} from "@/lib/domain/voice-activity";
 import type { SessionView } from "@/lib/services/session-service";
 
 type SavePhase = "idle" | "uploading" | "processing";
+/**
+ * idle: nothing in progress (a finished take may be shown).
+ * starting: waiting for microphone permission and the recorder.
+ * recording: capturing audio.
+ * finishing: stop was pressed; waiting for the recorder's last chunk.
+ */
+type RecordPhase = "idle" | "starting" | "recording" | "finishing";
 
 const UPLOAD_TIMEOUT_MS = 120_000;
 const PROCESSING_TIMEOUT_MS = 75_000;
 const RECONCILE_TIMEOUT_MS = 15_000;
+const RECONCILE_REQUEST_TIMEOUT_MS = 5_000;
+const METER_INTERVAL_MS = 100;
+/** If the recorder never reports its last chunk, finish with what we have. */
+const FINISH_TIMEOUT_MS = 3_000;
+
+class UploadCancelledError extends Error {}
 
 function preferredMimeType(): string {
   const candidates = [
@@ -53,7 +72,10 @@ function hasSavedRecording(
 
 async function fetchSessionView(): Promise<SessionView | null> {
   try {
-    const response = await fetch("/api/student/session", { cache: "no-store" });
+    const response = await fetch("/api/student/session", {
+      cache: "no-store",
+      signal: AbortSignal.timeout(RECONCILE_REQUEST_TIMEOUT_MS),
+    });
     if (!response.ok) return null;
     const payload = await response.json();
     return payload.data ?? null;
@@ -75,6 +97,30 @@ async function reconcileSavedRecording(
   return null;
 }
 
+/**
+ * Creates the AudioContext for the level meter. It must be created and resumed
+ * inside the tap itself: iOS Safari keeps a context made after an await
+ * suspended, and a suspended meter reads every recording as silent.
+ */
+function createMeterContext(): AudioContext | null {
+  try {
+    const context = new AudioContext();
+    void context.resume().catch(() => undefined);
+    return context;
+  } catch {
+    return null;
+  }
+}
+
+type Meter = {
+  context: AudioContext;
+  timer: ReturnType<typeof setInterval>;
+  voicedMs: number;
+  peak: number;
+  /** Frames read while the context was running; 0 means no measurement. */
+  frames: number;
+};
+
 export function AudioRecorder({
   stage,
   sessionId,
@@ -92,188 +138,287 @@ export function AudioRecorder({
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const finishTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startedAtRef = useRef(0);
   const stoppedAtRef = useRef(0);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const samplesRef = useRef<Float32Array<ArrayBuffer> | null>(null);
-  const peakRef = useRef(0);
-  const measuredRef = useRef(false);
-  const failedRef = useRef(false);
   const mountedRef = useRef(true);
+  const meterRef = useRef<Meter | null>(null);
+  const previewUrlRef = useRef("");
+  // Read and written synchronously, so a double tap cannot start twice.
+  const phaseRef = useRef<RecordPhase>("idle");
+  const uploadControllerRef = useRef<AbortController | null>(null);
+  const uploadCancelledRef = useRef(false);
+  const [phase, setPhaseState] = useState<RecordPhase>("idle");
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [deviceId, setDeviceId] = useState("");
   const [deviceLabel, setDeviceLabel] = useState("");
-  const [level, setLevel] = useState(0);
-  const [silent, setSilent] = useState(false);
-  const [preparing, setPreparing] = useState(false);
   const [monitoring, setMonitoring] = useState(false);
-  const [recording, setRecording] = useState(false);
+  const [level, setLevel] = useState(0);
+  const [voice, setVoice] = useState<VoiceActivity | null>(null);
   const [seconds, setSeconds] = useState(0);
   const [blob, setBlob] = useState<Blob | null>(null);
-  const [previewUrl, setPreviewUrl] = useState("");
+  const [previewUrl, setPreviewUrlState] = useState("");
   const [busy, setBusy] = useState(false);
   const [savePhase, setSavePhase] = useState<SavePhase>("idle");
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState("");
 
-  // Changing the preview URL must not stop a new microphone stream.
-  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
+  function setPhase(next: RecordPhase) {
+    phaseRef.current = next;
+    setPhaseState(next);
+  }
 
+  function setPreviewUrl(next: string) {
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    previewUrlRef.current = next;
+    setPreviewUrlState(next);
+  }
+
+  // Releases the microphone, timers and meter. Safe to call more than once.
+  function releaseCapture() {
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = null;
+    if (finishTimerRef.current) clearTimeout(finishTimerRef.current);
+    finishTimerRef.current = null;
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+  }
+
+  // Unmount only: stop everything that could keep running.
   useEffect(() => {
     mountedRef.current = true;
     void navigator.mediaDevices?.enumerateDevices().then((items) => {
       if (mountedRef.current) setDevices(items.filter((item) => item.kind === "audioinput"));
-    }).catch(() => {});
+    }).catch(() => undefined);
     return () => {
       mountedRef.current = false;
+      // A start() still waiting for permission sees this and gives up.
+      phaseRef.current = "idle";
       const recorder = recorderRef.current;
-      if (recorder) {
+      recorderRef.current = null;
+      if (recorder && recorder.state !== "inactive") {
         recorder.onstop = null;
-        recorder.ondataavailable = null;
-        if (recorder.state !== "inactive") recorder.stop();
+        recorder.stop();
       }
-      streamRef.current?.getTracks().forEach((track) => track.stop());
       if (timerRef.current) clearInterval(timerRef.current);
-      void audioContextRef.current?.close().catch(() => {});
+      if (finishTimerRef.current) clearTimeout(finishTimerRef.current);
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      const meter = meterRef.current;
+      meterRef.current = null;
+      if (meter) {
+        clearInterval(meter.timer);
+        void meter.context.close().catch(() => undefined);
+      }
+      uploadControllerRef.current?.abort();
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
     };
   }, []);
 
-  function releaseMicrophone() {
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-    analyserRef.current = null;
-    samplesRef.current = null;
-    void audioContextRef.current?.close().catch(() => {});
-    audioContextRef.current = null;
-    if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = null;
+  /** Measures how much of the recording is voiced, so silence is caught here. */
+  function startMeter(stream: MediaStream, context: AudioContext | null) {
+    if (!context) {
+      // No Web Audio: record without the silence check; the server and the
+      // transcription prompt still refuse to invent speech.
+      meterRef.current = null;
+      return;
+    }
+    try {
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 2048;
+      context.createMediaStreamSource(stream).connect(analyser);
+      const samples = new Float32Array(analyser.fftSize);
+      const meter: Meter = {
+        context,
+        voicedMs: 0,
+        peak: 0,
+        frames: 0,
+        timer: setInterval(() => {
+          if (context.state !== "running") {
+            setMonitoring(false);
+            void context.resume().catch(() => undefined);
+            return;
+          }
+          analyser.getFloatTimeDomainData(samples);
+          const current = rmsLevel(samples);
+          setMonitoring(true);
+          meter.frames += 1;
+          if (current > VOICE_LEVEL_THRESHOLD) meter.voicedMs += METER_INTERVAL_MS;
+          meter.peak = Math.max(meter.peak, current);
+          setLevel(current);
+        }, METER_INTERVAL_MS),
+      };
+      meterRef.current = meter;
+    } catch {
+      void context.close().catch(() => undefined);
+      meterRef.current = null;
+    }
+  }
+
+  function stopMeter(): VoiceActivity | null {
+    const meter = meterRef.current;
+    meterRef.current = null;
+    setLevel(0);
+    setMonitoring(false);
+    if (!meter) return null;
+    clearInterval(meter.timer);
+    void meter.context.close().catch(() => undefined);
+    // A meter that never ran measured nothing: report no measurement rather
+    // than a silent recording.
+    if (meter.frames === 0) return null;
+    return {
+      voicedSeconds: Math.round(meter.voicedMs / 100) / 10,
+      peakLevel: Math.min(1, meter.peak),
+    };
   }
 
   async function start() {
+    if (phaseRef.current !== "idle" || busy) return;
+    setPhase("starting");
     setError("");
     setBlob(null);
     setPreviewUrl("");
-    setSilent(false);
-    setMonitoring(false);
-    setLevel(0);
-    setPreparing(true);
-    peakRef.current = 0;
-    measuredRef.current = false;
-    failedRef.current = false;
+    setVoice(null);
+    setSeconds(0);
     stoppedAtRef.current = 0;
+    const context = createMeterContext();
+    let stream: MediaStream | null = null;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      stream = await navigator.mediaDevices.getUserMedia({
         audio: deviceId ? { deviceId: { exact: deviceId } } : true,
       });
-      if (!mountedRef.current) { stream.getTracks().forEach((track) => track.stop()); return; }
-      streamRef.current = stream;
-      setDeviceLabel(stream.getAudioTracks()[0]?.label ?? "");
-      void navigator.mediaDevices.enumerateDevices().then((items) => {
-        if (mountedRef.current) setDevices(items.filter((item) => item.kind === "audioinput"));
-      }).catch(() => {});
-      try {
-        const context = new AudioContext();
-        audioContextRef.current = context;
-        const analyser = context.createAnalyser();
-        analyser.fftSize = 2048;
-        context.createMediaStreamSource(stream).connect(analyser);
-        analyserRef.current = analyser;
-        samplesRef.current = new Float32Array(analyser.fftSize);
-        context.onstatechange = () => {
-          if (mountedRef.current) setMonitoring(context.state === "running");
-        };
-        setMonitoring(context.state === "running");
-        // An optional level meter must not block the browser's recorder.
-        void context.resume().catch(() => {});
-      } catch {
-        // Recording still works if this browser cannot provide a level meter.
-      }
-      if (!mountedRef.current) { releaseMicrophone(); return; }
+    } catch {
+      void context?.close().catch(() => undefined);
+      setPhase("idle");
+      setError("無法使用麥克風，請確認瀏覽器權限與選取的裝置後重試。");
+      return;
+    }
+    // Unmounted, or reset, while the permission prompt was open.
+    // (Read through a widened type: TypeScript narrows the ref across the await.)
+    if ((phaseRef.current as RecordPhase) !== "starting") {
+      stream.getTracks().forEach((track) => track.stop());
+      void context?.close().catch(() => undefined);
+      return;
+    }
+    streamRef.current = stream;
+    setDeviceLabel(stream.getAudioTracks()[0]?.label ?? "");
+    void navigator.mediaDevices.enumerateDevices().then((items) => {
+      if (mountedRef.current) setDevices(items.filter((item) => item.kind === "audioinput"));
+    }).catch(() => undefined);
+    startMeter(stream, context);
+    let recorder: MediaRecorder;
+    try {
       const mimeType = preferredMimeType();
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      recorderRef.current = recorder;
+      recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       chunksRef.current = [];
       recorder.ondataavailable = (event) => {
-        if (event.data.size) chunksRef.current.push(event.data);
+        if (recorderRef.current === recorder && event.data.size) {
+          chunksRef.current.push(event.data);
+        }
       };
+      recorder.onstop = () => { void finish(recorder); };
       recorder.onerror = () => {
-        failedRef.current = true;
-        setError("錄音中斷，請確認麥克風連線後重錄。");
+        if (recorderRef.current !== recorder) return;
+        setError("錄音中斷了，請重新錄音。");
         stop();
       };
-      recorder.onstop = async () => {
-        const durationMs = (stoppedAtRef.current || performance.now()) - startedAtRef.current;
-        const noSignal = measuredRef.current && peakRef.current < 0.00001;
-        releaseMicrophone();
-        if (!mountedRef.current) return;
-        setRecording(false);
-        setSeconds(Math.floor(durationMs / 1000));
-        setPreparing(true);
-        try {
-          if (failedRef.current) return;
-          let recorded = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
-          if (!recorded.size) throw new Error("沒有收到錄音資料，請重新錄音。");
-          if (recorded.type.includes("webm")) recorded = await fixWebmDuration(recorded, durationMs, { logger: false });
-          if (!mountedRef.current) return;
-          setSilent(noSignal);
-          if (noSignal) setError("這段錄音沒有偵測到聲音。請確認麥克風未靜音，或改選其他麥克風後重錄。");
-          setBlob(recorded);
-          setPreviewUrl(URL.createObjectURL(recorded));
-        } catch (cause) {
-          if (mountedRef.current) setError(cause instanceof Error ? cause.message : "錄音檔建立失敗，請重錄。");
-        } finally {
-          if (mountedRef.current) setPreparing(false);
-        }
-      };
+      recorderRef.current = recorder;
       recorder.start(500);
-      startedAtRef.current = performance.now();
-      setSeconds(0);
-      setRecording(true);
-      timerRef.current = setInterval(() => {
-        const elapsed = Math.floor((performance.now() - startedAtRef.current) / 1000);
-        setSeconds(elapsed);
-        const samples = samplesRef.current;
-        if (samples && analyserRef.current && audioContextRef.current?.state === "running") {
-          analyserRef.current.getFloatTimeDomainData(samples);
-          const rms = Math.sqrt(samples.reduce((sum, value) => sum + value * value, 0) / samples.length);
-          measuredRef.current = true;
-          peakRef.current = Math.max(peakRef.current, rms);
-          setLevel(Math.min(1, rms * 8));
-          setSilent(elapsed >= 5 && peakRef.current < 0.00001);
-        }
-        if (elapsed >= maximumSeconds) stop();
-      }, 100);
     } catch {
-      releaseMicrophone();
-      if (mountedRef.current) setError("無法使用麥克風，請確認瀏覽器權限與選取的裝置後重試。");
+      recorderRef.current = null;
+      stopMeter();
+      releaseCapture();
+      setPhase("idle");
+      setError("這個瀏覽器無法錄音，請改用最新版的 Chrome 或 Safari。");
+      return;
+    }
+    // The microphone can disappear mid-take (headset unplugged, another app,
+    // a phone call). Treat that as pressing stop.
+    stream.getAudioTracks().forEach((track) => {
+      track.onended = () => {
+        if (recorderRef.current === recorder && phaseRef.current === "recording") stop();
+      };
+    });
+    startedAtRef.current = performance.now();
+    setPhase("recording");
+    timerRef.current = setInterval(() => {
+      const elapsed = Math.floor((performance.now() - startedAtRef.current) / 1000);
+      setSeconds(elapsed);
+      if (elapsed >= maximumSeconds) stop();
+    }, 250);
+  }
+
+  // Builds the take from the recorded chunks. Runs once per recorder.
+  async function finish(recorder: MediaRecorder) {
+    if (recorderRef.current !== recorder) return;
+    // Keep "finishing" until WebM metadata is repaired. A rapid tap must not
+    // start a second take while the previous one is still being prepared.
+    setPhase("finishing");
+    recorderRef.current = null;
+    const durationMs = (stoppedAtRef.current || performance.now()) - startedAtRef.current;
+    if (meterRef.current) setVoice(stopMeter());
+    releaseCapture();
+    const chunks = chunksRef.current;
+    chunksRef.current = [];
+    try {
+      if (!chunks.length) throw new Error("沒有錄到聲音資料，請再錄一次。");
+      let recorded = new Blob(chunks, {
+        type: recorder.mimeType || "audio/webm",
+      });
+      if (recorded.type.includes("webm")) {
+        recorded = await fixWebmDuration(recorded, durationMs, { logger: false });
+      }
+      if (!mountedRef.current) return;
+      setSeconds(Math.floor(durationMs / 1000));
+      setBlob(recorded);
+      setPreviewUrl(URL.createObjectURL(recorded));
+    } catch (cause) {
+      if (mountedRef.current) setError(cause instanceof Error ? cause.message : "錄音檔建立失敗，請重錄。");
     } finally {
-      if (mountedRef.current) setPreparing(false);
+      if (mountedRef.current) setPhase("idle");
     }
   }
 
   function stop() {
-    stoppedAtRef.current = performance.now();
-    if (recorderRef.current?.state === "recording") recorderRef.current.stop();
+    if (phaseRef.current !== "recording") return;
+    setPhase("finishing");
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = null;
-    setRecording(false);
-    setPreparing(true);
+    stoppedAtRef.current = performance.now();
+    setSeconds(Math.floor((stoppedAtRef.current - startedAtRef.current) / 1000));
+    setVoice(stopMeter());
+    const recorder = recorderRef.current;
+    if (!recorder) {
+      releaseCapture();
+      setPhase("idle");
+      return;
+    }
+    if (recorder.state === "inactive") {
+      void finish(recorder);
+      return;
+    }
+    recorder.stop();
+    // Some browsers drop the stop event when the stream already ended.
+    finishTimerRef.current = setTimeout(() => { void finish(recorder); }, FINISH_TIMEOUT_MS);
   }
 
   function reset() {
     setPreviewUrl("");
     setBlob(null);
     setSeconds(0);
-    setLevel(0);
-    setSilent(false);
     setSavePhase("idle");
     setUploadProgress(0);
     setError("");
+    setVoice(null);
+  }
+
+  function cancelUpload() {
+    uploadCancelledRef.current = true;
+    uploadControllerRef.current?.abort();
   }
 
   async function save() {
-    if (!blob || silent) return;
+    if (!blob || busy || noSignal || phaseRef.current !== "idle") return;
     if (seconds < minimumSeconds) {
       setError(`錄音至少需要 ${minimumSeconds} 秒。`);
       return;
@@ -282,6 +427,7 @@ export function AudioRecorder({
     setSavePhase("uploading");
     setUploadProgress(0);
     setError("");
+    uploadCancelledRef.current = false;
     let stagingPathname = "";
     let activePhase: SavePhase = "uploading";
     try {
@@ -289,6 +435,7 @@ export function AudioRecorder({
       const uploadContentType = normalizeAudioMimeType(blob.type);
       const pathname = `student/${sessionId}/${stage}/recording.${extension}`;
       const uploadController = new AbortController();
+      uploadControllerRef.current = uploadController;
       const uploadTimeout = window.setTimeout(
         () => uploadController.abort(),
         UPLOAD_TIMEOUT_MS,
@@ -305,8 +452,12 @@ export function AudioRecorder({
             setUploadProgress(Math.round(percentage));
           },
         });
+      } catch (cause) {
+        if (uploadCancelledRef.current) throw new UploadCancelledError();
+        throw cause;
       } finally {
         window.clearTimeout(uploadTimeout);
+        uploadControllerRef.current = null;
       }
       stagingPathname = result.pathname;
       setUploadProgress(100);
@@ -328,6 +479,7 @@ export function AudioRecorder({
             stage,
             url: result.url,
             durationSeconds: seconds,
+            ...(voice ? { voice } : {}),
           }),
           signal: processingController.signal,
         });
@@ -350,7 +502,9 @@ export function AudioRecorder({
       onSaved(payload.data);
       reset();
     } catch (cause) {
-      if (cause instanceof DOMException && cause.name === "AbortError") {
+      if (cause instanceof UploadCancelledError) {
+        setError("已取消上傳，錄音還在，可以再按一次保存。");
+      } else if (cause instanceof DOMException && cause.name === "AbortError") {
         const recovered = stagingPathname
           ? await reconcileSavedRecording(stage, stagingPathname)
           : null;
@@ -362,7 +516,7 @@ export function AudioRecorder({
         setError(
           activePhase === "uploading"
             ? "錄音上傳逾時，請確認網路連線後重試。"
-            : "錄音存入錄音儲存庫超過預期時間，請稍後重試；已完成的錄音不會重複保存。",
+            : "錄音存入儲存庫超過預期時間，請稍後重試；已完成的錄音不會重複保存。",
         );
       } else {
         setError(cause instanceof Error ? cause.message : "錄音保存失敗。");
@@ -373,17 +527,20 @@ export function AudioRecorder({
     }
   }
 
+  const silent = isSilentRecording(voice ?? undefined);
+  const noSignal = voice !== null && voice.peakLevel < 0.00001;
   const busyLabel =
     savePhase === "uploading"
       ? `正在上傳錄音 ${uploadProgress}%`
       : "正在存入錄音儲存庫…";
+  const showStart = !blob && (phase === "idle" || phase === "starting");
 
   return (
     <div>
       <div className="field microphone-selector">
         <label htmlFor={`microphone-${stage}`}>麥克風</label>
         <select id={`microphone-${stage}`} className="input" value={deviceId}
-          disabled={recording || preparing || busy} onChange={(event) => setDeviceId(event.target.value)}>
+          disabled={phase !== "idle" || busy} onChange={(event) => setDeviceId(event.target.value)}>
           <option value="">系統預設麥克風</option>
           {devices.filter((device) => device.deviceId && device.deviceId !== "default").map((device, index) => (
             <option key={device.deviceId} value={device.deviceId}>{device.label || `麥克風 ${index + 1}`}</option>
@@ -391,25 +548,34 @@ export function AudioRecorder({
         </select>
       </div>
       <div className="audio-recorder">
-        {!recording && !blob ? (
+        {showStart ? (
           <button
             className="record-button"
             type="button"
             onClick={start}
-            disabled={preparing}
-            aria-label="開始錄音"
+            disabled={phase === "starting"}
+            aria-label={phase === "starting" ? "正在開啟麥克風" : "開始錄音"}
           >
-            <Mic size={20} />
+            {phase === "starting" ? (
+              <LoaderCircle className="spin" size={20} />
+            ) : (
+              <Mic size={20} />
+            )}
           </button>
         ) : null}
-        {recording ? (
+        {phase === "recording" || phase === "finishing" ? (
           <button
             className="record-button recording"
             type="button"
             onClick={stop}
-            aria-label="停止錄音"
+            disabled={phase === "finishing"}
+            aria-label={phase === "finishing" ? "正在整理錄音" : "停止錄音"}
           >
-            <Pause size={19} />
+            {phase === "finishing" ? (
+              <LoaderCircle className="spin" size={19} />
+            ) : (
+              <Pause size={19} />
+            )}
           </button>
         ) : null}
         <span className="recording-time">
@@ -417,7 +583,9 @@ export function AudioRecorder({
           {String(seconds % 60).padStart(2, "0")}
         </span>
         <span style={{ color: "var(--ink-soft)", fontSize: ".78rem" }}>
-          {minimumSeconds}–{maximumSeconds} 秒
+          {phase === "starting"
+            ? "正在開啟麥克風…"
+            : `${minimumSeconds}–${maximumSeconds} 秒`}
         </span>
         {previewUrl ? (
           <audio controls src={previewUrl}>
@@ -435,22 +603,37 @@ export function AudioRecorder({
               <RotateCcw size={16} />
               重錄
             </button>
-            <button className="button" type="button" onClick={save} disabled={busy || silent || preparing}>
+            <button className="button" type="button" onClick={save} disabled={busy || noSignal || phase !== "idle"}>
               <UploadCloud size={16} />
               {busy ? busyLabel : "保存錄音"}
             </button>
+            {busy && savePhase === "uploading" ? (
+              <button
+                className="button secondary"
+                type="button"
+                onClick={cancelUpload}
+              >
+                <X size={16} aria-hidden="true" />
+                取消上傳
+              </button>
+            ) : null}
           </>
         ) : null}
       </div>
-      {recording && monitoring ? (
+      {phase === "recording" && monitoring ? (
         <div className="microphone-meter" role="status" aria-live="off">
           <label htmlFor={`microphone-level-${stage}`}>收音音量</label>
-          <meter id={`microphone-level-${stage}`} min={0} max={1} value={level} />
+          <meter id={`microphone-level-${stage}`} min={0} max={1} value={Math.min(1, level * 8)} />
           <small>{deviceLabel}</small>
         </div>
       ) : null}
-      {recording && silent ? <p className="error-banner" role="status">尚未偵測到聲音，請確認麥克風未靜音，並試著說一句話。</p> : null}
-      {preparing ? <p className="upload-status" role="status">正在準備錄音…</p> : null}
+      {blob && silent ? (
+        <div className="error-banner" role="alert">
+          {noSignal
+            ? "這段錄音沒有偵測到聲音。請確認麥克風未靜音，或改選其他麥克風後重錄。"
+            : "這段錄音偵測到的說話時間不足，保存後不會產生逐字稿或口說分析。請確認收音並試聽，必要時按「重錄」。"}
+        </div>
+      ) : null}
       {busy ? (
         <div className="upload-status" role="status" aria-live="polite">
           {savePhase === "uploading"

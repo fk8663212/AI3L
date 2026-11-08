@@ -4532,6 +4532,22 @@ button {
   }
 }
 
+/* Live microphone level while recording: shows the student the mic hears them. */
+.voice-meter {
+  height: 6px;
+  margin-top: 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
+  overflow: hidden;
+}
+.voice-meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--green);
+  transition: width 90ms linear;
+}
+
 /* ---- Stage 5: concept map editor ---------------------------------------- */
 .panel-wide {
   grid-column: 1 / -1;
@@ -4545,20 +4561,60 @@ button {
   gap: 14px;
 }
 
-.concept-graph.editable .concept-node {
-  cursor: grab;
+/* Cytoscape draws into canvases it adds inside this element. */
+.concept-graph.cy-editor {
+  background-color: white;
   touch-action: none;
-  user-select: none;
 }
 
-.concept-graph.editable .concept-node:active {
-  cursor: grabbing;
+.cy-editor-surface {
+  position: absolute;
+  inset: 0;
 }
 
-.concept-graph.editable .concept-node.selected {
-  z-index: 3;
-  outline: 3px solid color-mix(in srgb, var(--brand) 35%, transparent);
-  outline-offset: 2px;
+.concept-graph.cy-editor.connecting {
+  outline: 3px solid color-mix(in srgb, #0f9d58 45%, transparent);
+  outline-offset: -3px;
+}
+
+.concept-editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.concept-editor-status {
+  flex: 1;
+  min-width: 180px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.concept-editor-status[role="status"] {
+  justify-content: flex-start;
+  padding: 6px 6px 6px 12px;
+  border-radius: 12px;
+  color: #0b6b3c;
+  background: #e8f6ee;
+}
+
+.concept-editor-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.concept-edge-list > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  cursor: pointer;
 }
 
 .concept-editor-panel {

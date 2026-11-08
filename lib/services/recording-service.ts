@@ -2,6 +2,7 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { accessCodes, artifacts, studentSessions, tasks } from "@/lib/db/schema";
 import { withRecordingAnalysisStatus } from "@/lib/domain/recordings";
+import { voiceActivitySchema } from "@/lib/domain/voice-activity";
 import type { StageId } from "@/lib/domain/stages";
 import { analyzeRecording } from "@/lib/ai/voice-service";
 import { ApiError } from "@/lib/security/request";
@@ -98,12 +99,14 @@ export async function retryRecordingAnalysis(audioArtifactId: string) {
     const file = await getDriveFileStream(audio.storageLocator);
     const bytes = new Uint8Array(await new Response(file.stream).arrayBuffer());
     const mimeType = audio.mimeType ?? file.mimeType;
+    const voice = voiceActivitySchema.safeParse(audio.data.voice);
     const analysis = await analyzeRecording({
       ...target,
       bytes,
       mimeType,
       filename: file.name,
       durationSeconds: Number(audio.data.durationSeconds ?? 0),
+      ...(voice.success ? { voice: voice.data } : {}),
     });
     await saveRecordingAnalysis({
       ...target,

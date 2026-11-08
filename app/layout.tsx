@@ -1,20 +1,24 @@
 import type { Metadata } from "next";
-import { Noto_Sans_TC, Nunito } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 
-// Self-hosted by next/font, so the strict CSP (font-src 'self') still holds.
-const nunito = Nunito({
-  subsets: ["latin"],
-  weight: ["500", "700", "800", "900"],
+// Keep builds independent of Google Fonts URLs and preserve the family names
+// used by the Cytoscape canvas. Font sources and licenses are in ./fonts/.
+const nunito = localFont({
+  src: "./fonts/nunito-variable.woff2",
+  weight: "200 1000",
   variable: "--font-latin",
   display: "swap",
+  declarations: [{ prop: "font-family", value: "Nunito" }],
 });
 
-const notoSansTc = Noto_Sans_TC({
-  weight: ["400", "500", "700", "900"],
+const notoSansTc = localFont({
+  src: "./fonts/noto-sans-tc-variable.woff2",
+  weight: "100 900",
   variable: "--font-cjk",
   display: "swap",
   preload: false,
+  declarations: [{ prop: "font-family", value: '"Noto Sans TC"' }],
 });
 
 export const metadata: Metadata = {

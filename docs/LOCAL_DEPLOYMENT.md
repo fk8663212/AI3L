@@ -2,14 +2,14 @@
 
 本機模式使用 PostgreSQL 保存研究資料，圖片與錄音存到本機私有目錄。網站、資料庫與檔案儲存不需要 Vercel、Neon 或 Google Drive 帳號。AI 圖像分析、轉錄與語言提示仍使用後台設定的 Gemini／OpenAI API，需要網路與有效金鑰；本機部署不等於 AI 完全離線。
 
-Macro／Micro 雙層圖目前仍是固定範例展示，尚未接入正式學生流程；本次部署改造不改變這項狀態。
+Macro／Micro 雙層圖已接入正式第 5、6 階段，使用學生確認的概念與任務設定的講述模板；操作規則見 [MACRO_MICRO.md](MACRO_MICRO.md)。原本的獨立 Demo 仍使用固定範例，可用來展示介面。
 
 ## 1. 準備環境
 
 - Node.js 22，先以 `node --version` 確認。
 - Docker Desktop 或 Docker Engine，以及 Docker Compose v2 或更新版本（[官方安裝說明](https://docs.docker.com/compose/install/)）。
 - 啟動 Docker，確認 `docker info` 和 `docker compose version` 都成功。
-- 第一次安裝會下載套件、容器映像與網站字型，需要網路。
+- 第一次安裝會下載套件與容器映像，需要網路。網站字型已附在專案內，建置與瀏覽不需連線到 Google Fonts。
 
 以下指令在專案根目錄執行；目前工作副本是 `/home/yangkai/AI3L/ddc-personal`。若系統目前是 Node 18，可暫以 `npx --yes --package=node@22 -- npm run local:setup` 執行初始化，長期開發建議切換到 Node 22。
 

@@ -25,6 +25,7 @@
     "@neondatabase/serverless": "^1.0.2",
     "@vercel/blob": "^2.6.1",
     "bufferutil": "^4.1.0",
+    "cytoscape": "3.34.4",
     "drizzle-orm": "^0.45.2",
     "googleapis": "^173.0.0",
     "heic-to": "^1.5.2",

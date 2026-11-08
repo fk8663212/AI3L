@@ -16,6 +16,13 @@ import type { StageId } from "@/lib/domain/stages";
 import { hashForLog } from "@/lib/security/crypto";
 import { ApiError } from "@/lib/security/request";
 import { normalizeTaskConfig } from "@/lib/domain/default-task";
+import {
+  boundTranscript,
+  isSilentRecording,
+  silentEvaluation,
+  silentTranscript,
+  type VoiceActivity,
+} from "@/lib/domain/voice-activity";
 
 const RECORDING_STAGES = new Set<StageId>([
   "pretest",
@@ -72,6 +79,8 @@ export async function analyzeRecording(input: {
   filename: string;
   durationSeconds: number;
   audioArtifactId?: string;
+  /** Measured by the recorder and reused for retries; absent on older recordings. */
+  voice?: VoiceActivity;
 }) {
   if (!RECORDING_STAGES.has(input.stageId)) {
     throw new ApiError(400, "INVALID_RECORDING_STAGE", "此階段不接受錄音分析。");
@@ -96,6 +105,12 @@ export async function analyzeRecording(input: {
     if (!savedAudio) {
       throw new ApiError(409, "STAGE_LOCKED", "目前階段不接受這筆錄音分析。");
     }
+  }
+
+  // No voice: never send it to a speech model, which would invent a
+  // plausible learner transcript for silence.
+  if (isSilentRecording(input.voice)) {
+    return { transcript: silentTranscript(), evaluation: silentEvaluation() };
   }
 
   const transcriptionModel =
@@ -148,6 +163,13 @@ export async function analyzeRecording(input: {
       "錄音已收到，但逐字稿產生失敗；請稍後重新保存。",
     );
   }
+
+  const bounded = boundTranscript(transcript.value, input.durationSeconds);
+  // The model found no speech: there is nothing to evaluate.
+  if (!wordCount(bounded.text)) {
+    return { transcript: silentTranscript(), evaluation: silentEvaluation() };
+  }
+  transcript = { ...transcript, value: bounded };
 
   const basicWordsPerMinute = Math.round(
     (wordCount(transcript.value.text) / input.durationSeconds) * 60,

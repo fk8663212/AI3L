@@ -1770,6 +1770,7 @@ export function AdminDashboard({
   initialSessions: AdminSessionListPage;
 }) {
   const router = useRouter();
+  const interactive = useSyncExternalStore(noSubscription, () => true, () => false);
   const [data, setData] = useState(initialData);
   const [tab, setTab] = useState<Tab>("overview");
   const [researchView, setResearchView] = useState<ResearchView>("sessions");
@@ -1880,6 +1881,7 @@ export function AdminDashboard({
               aria-label={item.label}
               title={item.label}
               type="button"
+              disabled={!interactive}
               onClick={() => setTab(item.id)}
             >
               <item.icon size={18} />

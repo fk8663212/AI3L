@@ -6,6 +6,10 @@ const scriptSrc =
     ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
     : "script-src 'self' 'unsafe-inline'";
 
+// The HEIC converter (heic-to) decodes in a Web Worker it starts from a blob:
+// URL. Without worker-src, script-src applies and blocks it, so every HEIC
+// upload failed with "HEIC／HEIF 圖片轉換失敗".
+
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   allowedDevOrigins: ["127.0.0.1"],
@@ -36,7 +40,7 @@ const nextConfig: NextConfig = {
         headers: [
           {
             key: "Content-Security-Policy",
-            value: `default-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self' https://vercel.com https://*.blob.vercel-storage.com; ${scriptSrc}; style-src 'self' 'unsafe-inline'; font-src 'self' data:`,
+            value: `default-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self' https://vercel.com https://*.blob.vercel-storage.com; ${scriptSrc}; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:`,
           },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           { key: "X-Content-Type-Options", value: "nosniff" },
