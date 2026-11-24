@@ -56,7 +56,7 @@ export const STAGES: readonly StageDefinition[] = [
     order: 3,
     shortLabel: "概念",
     title: "手繪原始概念圖",
-    description: "在紙上整理概念、方向連線與關係詞，再拍照上傳。",
+    description: "先自行手繪概念與關係，拍照上傳後供 AI 在後續階段整合擴充。",
     aiEnabled: false,
   },
   {
@@ -72,7 +72,7 @@ export const STAGES: readonly StageDefinition[] = [
     order: 5,
     shortLabel: "擴充",
     title: "AI 概念圖擴充",
-    description: "比較 AI 建議與自己的概念圖，保留真正符合經驗的內容。",
+    description: "整合手繪概念圖、情境詞彙與活動背景，篩選 AI 補述是否符合自己要表達的內容。",
     aiEnabled: true,
   },
   {

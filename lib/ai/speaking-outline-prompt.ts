@@ -1,3 +1,6 @@
+import { conceptMapSchema } from "@/lib/ai/schemas";
+import { conceptMapWithoutEnrichmentNotes } from "@/lib/domain/concept-enrichment";
+
 export const SPEAKING_OUTLINE_TEMPLATE = `
 依學生已確認的概念圖，安排適合口說的 Macro 講述順序，通常 3 至 5 段，最多 6 段；內容較少時可以減少。
 每段包含唯一 id、簡短 titleZh、titleEn，以及該段 Micro 子圖使用的 nodeIds。
@@ -35,7 +38,8 @@ export function speakingOutlinePrompt(
   map: unknown,
   template?: SpeakingTemplate,
 ) {
-  return `${speakingOutlineTemplate(template)}\n任務：${title}\n已確認概念圖：\n${JSON.stringify(map)}`;
+  const parsedMap = conceptMapSchema.safeParse(map);
+  return `${speakingOutlineTemplate(template)}\n任務：${title}\n已確認概念圖：\n${JSON.stringify(parsedMap.success ? conceptMapWithoutEnrichmentNotes(parsedMap.data) : map)}`;
 }
 
 export const PARAGRAPH_HINTS_CONTRACT =
@@ -45,9 +49,14 @@ import {
   type SpeakingTemplate,
 } from "@/lib/domain/speaking-templates";
 
-export function templateAnalysisContract(template?: SpeakingTemplate) {
+export function templateAnalysisContract(template?: SpeakingTemplate, allowKnowledgeEnrichment = false) {
   if (!template) return "";
   const heading = `\n【講述模板：${SPEAKING_TEMPLATES[template.id].label} ${template.version}】\n`;
+  if (allowKnowledgeEnrichment) {
+    if (template.id === "problem_solution") return `${heading}先保留學生提供的問題、因果與行動，再依活動背景提出有關的可能原因或解決提案，全部標示 enrichment、交由學生篩選。不能只憑圖片推斷成因，時間先後、共現或箭頭方向都不等於因果。區分預期成效與已觀察結果；不得將補述當成已確認原因、已執行行動或已觀察成效。`;
+    if (template.id === "chronological") return `${heading}先保留學生提供的材料、動作、事件與先後；可依活動主題提出常見但尚未提及的步驟或細節，全部標示 enrichment 並請學生確認。不得把圖片左右位置當時間，也不假定學生做過候選步驟；不捏造日期、故障或檢驗結果。`;
+    return `${heading}先保留學生提供的場所、人物與空間關係；可依活動主題與簡介聯想可能遺漏的景點特色或體驗，標示 enrichment 並請學生確認。不得把一般地方知識當作學生實際走過的路線或做過的活動。`;
+  }
   if (template.id === "problem_solution")
     return `${heading}優先辨識可見的問題現況、相關條件、人物、物件、行動與結果。不能只憑圖片推斷成因，時間先後、共現或箭頭方向都不等於因果。以學生明確提供的因果關係為依據；可能原因與建議處理須保守標示、交由學生審核，不能當成已確認事實或已執行行動。區分預期成效與已觀察結果，不捏造成因、解法、成效或數字。`;
   return template.id === "chronological"

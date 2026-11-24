@@ -13,6 +13,7 @@ import {
 import {
   conceptMapSchema,
   generatedConceptMapSchema,
+  enrichedConceptMapGenerationSchema,
   imageAnalysisGenerationSchema,
   sentenceScaffoldSchema,
 } from "@/lib/ai/schemas";
@@ -32,6 +33,7 @@ import {
   normalizeSentenceScaffoldOutput,
 } from "@/lib/ai/normalize";
 import { normalizeTaskConfig } from "@/lib/domain/default-task";
+import { CONCEPT_ENRICHMENT_POLICY, unconfirmedEnrichmentMap } from "@/lib/domain/concept-enrichment";
 import type { StageId } from "@/lib/domain/stages";
 import { decryptSecret, hashForLog } from "@/lib/security/crypto";
 import { ApiError } from "@/lib/security/request";
@@ -269,10 +271,11 @@ export async function runStageAI(
       );
     }
     schemaName = "concept_map";
-    schema = generatedConceptMapSchema;
+    schema = enrichedConceptMapGenerationSchema;
     prompt = conceptExpansionPrompt(
       {
         taskTitle: context.task.title,
+        taskDescription: context.task.description,
         studentMap: {
           format: "hand-drawn-image",
           attached: true,
@@ -380,6 +383,13 @@ export async function runStageAI(
     }
     if (stage === "sentence_scaffold" && speakingOutlineId) {
       result.value = { ...(result.value as Record<string, unknown>), speakingOutlineId, ...(speakingTemplate ? { speakingTemplate } : {}) };
+    }
+    if (stage === "ai_concept_map") {
+      result.value = {
+        ...unconfirmedEnrichmentMap(generatedConceptMapSchema.parse(result.value)),
+        enrichmentPolicy: CONCEPT_ENRICHMENT_POLICY,
+        enrichmentContext: { taskTitle: context.task.title, activityDescription: context.task.description },
+      };
     }
     const outputType =
       stage === "ai_concept_map" ? "generated_concept_map" : stage;

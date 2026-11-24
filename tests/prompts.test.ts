@@ -32,13 +32,13 @@ describe("prompt audit catalog", () => {
 
   it("makes the task-description boundary explicit", () => {
     const catalog = promptAuditCatalog();
-    const serializedTemplates = JSON.stringify(catalog.stages);
-
-    expect(catalog.contextPolicy.excluded).toContain(
-      "任務摘要 task.description",
-    );
-    expect(serializedTemplates).not.toContain("{{task.description}}");
-    expect(serializedTemplates).toContain("{{task.title}}");
+    const expansion = catalog.stages.find(stage => stage.id === "ai_concept_map")!.calls.find(call => call.id === "concept_expansion")!;
+    expect(catalog.contextPolicy.included.some(item => item.includes("task.description"))).toBe(true);
+    expect(catalog.contextPolicy.excluded.some(item => item.includes("task.description"))).toBe(false);
+    expect(expansion.userPromptTemplate).toContain("{{task.description}}");
+    expect(expansion.variables).toContain("task.description");
+    const otherCalls = catalog.stages.flatMap(stage => stage.calls).filter(call => call.id !== "concept_expansion");
+    expect(otherCalls.every(call => !call.variables.includes("task.description"))).toBe(true);
   });
 
   it("renders runtime prompts from the audited templates", () => {

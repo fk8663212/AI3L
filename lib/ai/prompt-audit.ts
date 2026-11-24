@@ -135,7 +135,7 @@ const stageCalls: Record<
       id: "concept_expansion",
       title: "生成新的擴充概念圖",
       purpose:
-        "讀取學生上傳的手繪概念圖，與已確認詞彙整合，生成具有節點、方向連線與關係標籤的新概念圖。",
+        "直接讀取學生上傳的手繪概念圖，整合已確認的情境詞彙；再依主題與老師的活動簡介運用背景知識補述，標示待學生篩選的節點、方向關係與確認問題。",
       systemLabel: "AI scaffold system prompt",
       systemPrompt: config.baseSystemPrompt,
       userPromptTemplate: effectiveConceptExpansionTemplate(
@@ -143,6 +143,7 @@ const stageCalls: Record<
       ),
       variables: [
         "task.title",
+        "task.description",
         "student.handDrawnConceptMapImage",
         "student.conceptMapJson",
         "student.acceptedVocabularyJson",
@@ -188,13 +189,13 @@ export function promptAuditCatalog(
     contextPolicy: {
       included: [
         "任務名稱 task.title",
+        "活動簡介 task.description（僅第 5 階段概念擴充，用於待確認的背景補述）",
         "任務指定的講述模板與版本（如有）",
         "當前階段需要的學生作品",
         "學生自行接受、修改或輸入的內容",
         "錄音長度、逐字稿與基礎語速估計",
       ],
       excluded: [
-        "任務摘要 task.description",
         "學生代碼與管理員資料",
         "其他學生的工作階段",
         "未到達階段的提示內容",
@@ -206,7 +207,7 @@ export function promptAuditCatalog(
         if (!speakingTemplate) return call;
         let userPromptTemplate = call.userPromptTemplate;
         if (call.id === "speaking_outline") userPromptTemplate = userPromptTemplate.replace(SPEAKING_OUTLINE_TEMPLATE, speakingOutlineTemplate(speakingTemplate));
-        if (call.id.startsWith("image_analysis") || call.id === "concept_expansion") userPromptTemplate += templateAnalysisContract(speakingTemplate);
+        if (call.id.startsWith("image_analysis") || call.id === "concept_expansion") userPromptTemplate += templateAnalysisContract(speakingTemplate, call.id === "concept_expansion");
         return {
           ...call,
           userPromptTemplate,

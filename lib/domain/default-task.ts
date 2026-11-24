@@ -46,7 +46,7 @@ export const DEFAULT_TASK_CONFIG: TaskConfig = {
     },
     self_concept_map: {
       instruction:
-        "先不用 AI，在紙上手繪概念、方向連線與關係詞，完成後拍照或選擇圖片上傳。",
+        "先自行在紙上手繪概念、方向連線與關係詞，完成後拍照上傳；AI 會在後續階段讀取這張圖並整合擴充。",
     },
     image_analysis: {
       instruction:
@@ -54,7 +54,7 @@ export const DEFAULT_TASK_CONFIG: TaskConfig = {
     },
     ai_concept_map: {
       instruction:
-        "比較 AI 生成的新概念圖與自己的原始概念圖，只保留能幫助描述實際經驗的節點與關係。",
+        "比較 AI 整合後的新概念圖，逐項確認新增內容。背景補述是依活動主題聯想到的候選，不代表你真的做過；只保留符合自己經驗或想表達內容的概念與關係。",
     },
     sentence_scaffold: {
       instruction:

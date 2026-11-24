@@ -212,7 +212,9 @@ export function ConceptMapCard({
               >
                 <strong>{node.labelEn}</strong>
                 <small>{node.labelZh}</small>
-                {node.source === "ai" ? <em>AI 新增</em> : null}
+                {node.source === "ai" ? <em>{node.enrichment
+                  ? node.enrichment.confirmedByStudent ? "AI 補述・學生保留" : "AI 補述・待確認"
+                  : "AI 新增"}</em> : null}
               </div>
             ))}
           </ConceptMapCanvas>

@@ -687,7 +687,7 @@ function TasksTab({
               {slugProblem ? <small id="task-slug-error" className="field-validation-error" role="alert">{slugProblem}</small> : fieldError("task-slug")}
             </div>
             <div className="field" style={{ gridColumn: "1 / -1" }}>
-              <label htmlFor="task-description">研究任務摘要</label>
+              <label htmlFor="task-description">活動簡介／研究任務摘要</label>
               <textarea
                 id="task-description"
                 aria-invalid={formError?.fieldId === "task-description"}
@@ -695,12 +695,12 @@ function TasksTab({
                 className="textarea"
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
-                placeholder="此文字只顯示於介面，不會送入 AI。"
+                placeholder="例如：分享礁溪旅遊的地點與活動。AI 會參考這段簡介，提出待學生確認的背景補述。"
                 minLength={10}
                 maxLength={2000}
                 required
               />
-              <small id="task-description-help">至少 10 個字元，目前 {description.length} 個。請簡述本次活動或研究目的。</small>
+              <small id="task-description-help">至少 10 個字元，目前 {description.length} 個。請簡述本次活動與背景；AI 會參考這裡提出補述候選，再由學生確認是否保留。</small>
               {fieldError("task-description")}
             </div>
             <div className="field">

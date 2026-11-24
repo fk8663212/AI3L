@@ -142,7 +142,8 @@ const STYLES: StylesheetJson = [
 function nodeLabel(node: PositionedNode): string {
   const en = node.labelEn.trim() || "（未命名）";
   const zh = node.labelZh.trim();
-  return zh && zh !== en ? `${en}\n${zh}` : en;
+  const label = zh && zh !== en ? `${en}\n${zh}` : en;
+  return node.enrichment ? `${label}\nAI 背景補述` : label;
 }
 
 let measureContext: CanvasRenderingContext2D | null = null;

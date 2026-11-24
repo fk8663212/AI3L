@@ -1,13 +1,15 @@
 import { paragraphHintsContract, templateAnalysisContract } from "@/lib/ai/speaking-outline-prompt";
 import type { SpeakingTemplate } from "@/lib/domain/speaking-templates";
+import { conceptMapSchema } from "@/lib/ai/schemas";
+import { conceptMapWithoutEnrichmentNotes } from "@/lib/domain/concept-enrichment";
 export const BASE_SYSTEM_PROMPT = `
 你是一名支援台灣國中生英語口說的學習鷹架助理。
 你的工作不是替學生虛構經驗或直接完成口說稿，而是把學生自己的圖像與概念轉成可供選擇的語言資源。
 規則：
-1. 只根據提供的學生作品與任務情境推論。
+1. 先根據提供的學生作品與任務情境理解內容；圖像辨識只標記可見元素。概念擴充階段可依活動主題與簡介，運用一般背景知識提出待學生確認的補述建議。
 2. 將直接可見的內容與推測分開；不確定時降低 confidence 並明確說明。
 3. 英文必須自然、適合國中程度，中文使用繁體中文。
-4. 不把一般的大稻埕知識當成學生親身經驗。
+4. 背景知識只作喚起回憶與補充內容的候選，不當成學生親身經驗；是否保留由學生決定。
 5. 回傳必須符合指定 JSON schema，不要包含 markdown。
 `.trim();
 
@@ -52,7 +54,7 @@ export const CONCEPT_EXPANSION_PROMPT_TEMPLATE = `
 保留可辨識且有助於敘事的學生原始節點與關係，再加入可由手繪情境、已確認詞彙或緊密情境關聯支持的英文節點與關係。
 新概念圖必須能單獨閱讀：每個節點都應參與至少一條關係，所有 edge 的 from/to 都必須對應到輸出的 node id。
 AI 新增項目的 source 必須是 "ai"，從學生手繪圖讀取的原始項目 source 必須是 "student"。
-難以辨識的字詞或連線不得自行補成學生內容；可加入有助於描述大稻埕情境的近距離詞彙聯想，但不可把未提供的事件寫成學生親身經驗。
+難以辨識的字詞或連線不得自行補成學生內容；可依本次活動主題與簡介加入待學生確認的背景知識補述，但不可把它寫成已發生的親身經驗。
 `.trim();
 
 export const IMAGE_ANALYSIS_OUTPUT_CONTRACT = `
@@ -65,6 +67,16 @@ export const CONCEPT_MAP_OUTPUT_CONTRACT = `
 【固定研究輸出契約】
 學生原始概念來源是隨請求附上的手繪概念圖圖片；必須先讀取圖片中的節點、方向連線與關係詞，無法辨識時應保守處理，不得假設學生輸入了未出現的概念。
 輸出必須是一張可單獨閱讀的新概念圖，而不是詞彙清單：至少包含 3 個 nodes、2 條有方向且有中英文關係詞的 edges；每條 edge 的 from/to 必須對應輸出的 node id，並清楚標示 student 或 ai 來源。
+
+【活動背景與知識補述】
+活動主題：{{task.title}}
+老師提供的活動簡介：{{task.description}}
+本次活動以這裡的主題與簡介為準，不沿用模板範例的地名或故事。
+先整合學生手繪概念圖與已確認的情境詞彙，再主動運用與活動主題／簡介相關的一般知識，提出少量（通常 1 至 4 個）能喚起回憶、補足表達的候選概念，並連回已有內容。資料不足以判斷相關性時可不補述，不為湊數新增。
+候選應是學生可能省略、且與本次活動有具體關聯的體驗、物件或細節，並以問題請學生確認；不要把任何固定景點、活動或案例套用到所有任務。
+每個 node 與 edge 都要回傳 enrichment：學生原有內容與可由作品／已確認詞彙支持的項目用 null；超出這些輸入的背景補述用 {"kind":"background_knowledge","reasonZh":"為什麼與本次活動相關","questionZh":"請學生確認是否符合經驗或想表達內容的問題"}，source 一律為 ai。連到補述概念的新關係也必須有 enrichment；不要在輸出中自行加上「學生已確認」標記。
+補述是待確認的候選，不是對學生經歷的斷言；用適合國中生的概念詞／短語與保守關係詞，不寫完整第一人稱敘事，不捏造特定店家、日期、價格、個人感受、實驗數值或已發生成效。
+因果內容的補述只可提出可能原因或處理建議，保留 may／could 等語氣，不當成已證明原因或已執行行動；流程內容可建議常見步驟，但不假定學生真的做過或確定其先後。
 `.trim();
 
 export const SENTENCE_SCAFFOLD_PROMPT_TEMPLATE = `
@@ -183,7 +195,11 @@ export function promptConfigForSpeakingTemplate(config: TaskPromptConfig, templa
 export function effectiveConceptExpansionTemplate(
   template = CONCEPT_EXPANSION_PROMPT_TEMPLATE,
 ): string {
-  return `${template.trim()}\n\n${CONCEPT_MAP_OUTPUT_CONTRACT}`;
+  const requiredInputs = [
+    !template.includes("{{student.conceptMapJson}}") ? "學生手繪概念圖附件資訊：\n{{student.conceptMapJson}}" : "",
+    !template.includes("{{student.acceptedVocabularyJson}}") ? "學生已確認的情境詞彙：\n{{student.acceptedVocabularyJson}}" : "",
+  ].filter(Boolean).join("\n\n");
+  return `${template.trim()}${requiredInputs ? `\n\n${requiredInputs}` : ""}\n\n${CONCEPT_MAP_OUTPUT_CONTRACT}`;
 }
 
 export function imageAnalysisPrompt(input: {
@@ -200,14 +216,16 @@ export function imageAnalysisPrompt(input: {
 export function conceptExpansionPrompt(input: {
   speakingTemplate?: SpeakingTemplate;
   taskTitle: string;
+  taskDescription?: string;
   studentMap: unknown;
   acceptedVocabulary: unknown;
 }, template = CONCEPT_EXPANSION_PROMPT_TEMPLATE): string {
   return renderPromptTemplate(effectiveConceptExpansionTemplate(template), {
     "task.title": input.taskTitle,
+    "task.description": input.taskDescription?.trim() || "未提供活動簡介，請保守依主題與學生內容提出候選。",
     "student.conceptMapJson": JSON.stringify(input.studentMap),
     "student.acceptedVocabularyJson": JSON.stringify(input.acceptedVocabulary),
-  }) + templateAnalysisContract(input.speakingTemplate);
+  }) + templateAnalysisContract(input.speakingTemplate, true);
 }
 
 export function sentenceScaffoldPrompt(input: {
@@ -217,9 +235,10 @@ export function sentenceScaffoldPrompt(input: {
   studentSentences: string[];
   speakingOutline?: unknown;
 }, template = SENTENCE_SCAFFOLD_PROMPT_TEMPLATE): string {
+  const parsedMap = conceptMapSchema.safeParse(input.finalConceptMap);
   const base = renderPromptTemplate(effectiveSentenceScaffoldTemplate(template), {
     "task.title": input.taskTitle,
-    "student.finalConceptMapJson": JSON.stringify(input.finalConceptMap),
+    "student.finalConceptMapJson": JSON.stringify(parsedMap.success ? conceptMapWithoutEnrichmentNotes(parsedMap.data) : input.finalConceptMap),
     "student.sentencesJson": JSON.stringify(
       input.studentSentences.map((sentence, index) => ({ index, sentence })),
     ),

@@ -95,6 +95,7 @@ export function resolveVocabularyReview(
 export function resolveConceptReview(
   generated: ConceptMap,
   rejectedIds: readonly string[],
+  confirmedEnrichmentIds: readonly string[] = [],
 ) {
   const aiItemIds = new Set(
     [...generated.nodes, ...generated.edges]
@@ -112,17 +113,32 @@ export function resolveConceptReview(
     rejected.add(id);
   }
 
-  const nodes = generated.nodes.filter((node) => !rejected.has(node.id));
+  const enrichedIds = new Set([...generated.nodes, ...generated.edges]
+    .filter(item => item.source === "ai" && item.enrichment).map(item => item.id));
+  const confirmed = new Set(confirmedEnrichmentIds);
+  for (const id of confirmed) {
+    if (!enrichedIds.has(id) || rejected.has(id)) throw new ReviewDecisionError(
+      "UNKNOWN_REVIEW_ITEM", "只能確認這次 AI 提供、且未移除的背景補述。",
+    );
+  }
+  // A missing confirmation is not consent to turn general knowledge into
+  // personal content. Older maps without enrichment metadata stay compatible.
+  for (const id of enrichedIds) if (!confirmed.has(id)) rejected.add(id);
+  const retain = <T extends ConceptMap["nodes"][number] | ConceptMap["edges"][number]>(item: T): T =>
+    item.enrichment ? { ...item, enrichment: { ...item.enrichment, confirmedByStudent: true } } : item;
+
+  const nodes = generated.nodes.filter((node) => !rejected.has(node.id)).map(retain);
   const nodeIds = new Set(nodes.map((node) => node.id));
   const edges = generated.edges.filter(
     (edge) =>
       !rejected.has(edge.id) && nodeIds.has(edge.from) && nodeIds.has(edge.to),
-  );
+  ).map(retain);
 
   return {
     pending: [] as string[],
     accepted: { nodes, edges },
     rejectedIds: [...rejected],
+    ...(enrichedIds.size ? { confirmedEnrichmentIds: [...nodes, ...edges].filter(item => item.enrichment).map(item => item.id) } : {}),
   };
 }
 
@@ -200,6 +216,7 @@ export function resolveConceptEdit(reviewed: ConceptMap, input: ConceptEditInput
       labelZh,
       category,
       source: base?.source ?? ("student" as const),
+      ...(base?.enrichment ? { enrichment: base.enrichment } : {}),
       x: clampPercent(node.x),
       y: clampPercent(node.y),
       ...(base && edited ? { edited: true } : {}),
@@ -229,6 +246,7 @@ export function resolveConceptEdit(reviewed: ConceptMap, input: ConceptEditInput
       relationEn,
       relationZh,
       source: base?.source ?? ("student" as const),
+      ...(base?.enrichment ? { enrichment: base.enrichment } : {}),
       ...(base && edited ? { edited: true } : {}),
     };
   });

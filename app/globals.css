@@ -4899,6 +4899,8 @@ button {
 .posttest-workspace { display: grid; gap: 20px; align-items: start; }
 .posttest-workspace[data-has-reference="true"] { grid-template-columns: minmax(0, 1fr) minmax(280px, 320px); }
 .posttest-reference { display: grid; gap: 16px; min-width: 0; }
+.review-enrichment-note { display: grid; gap: 6px; margin-top: 8px; color: var(--ink-soft); font-size: .85rem; line-height: 1.6; }
+.concept-review-decisions > .info-banner { padding: 12px 14px; border-radius: 12px; }
 .posttest-reference > .info-banner { padding: 14px 16px; border-radius: 14px; line-height: 1.6; }
 .posttest-recorder { position: sticky; top: 12px; min-width: 0; }
 .posttest-recorder .stage-panel { grid-template-columns: minmax(0, 1fr); }

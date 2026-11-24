@@ -37,6 +37,7 @@ import {
   recordConsent,
   recordPosttestReferenceNavigation,
   replaceArtifactData,
+  replaceArtifactsAtomically,
   saveMessage,
 } from "@/lib/services/session-service";
 
@@ -99,6 +100,8 @@ const bodySchema = z.discriminatedUnion("action", [
       })
       .optional(),
     rejectedIds: z.array(z.string()).max(100),
+    confirmedEnrichmentIds: z.array(z.string()).max(150).optional(),
+    sourceArtifactId: z.string().uuid().optional(),
   }),
   z.object({
     action: z.literal("save_concept_map"),
@@ -246,12 +249,9 @@ export async function POST(request: Request) {
           throw new ApiError(409, "STAGE_LOCKED", "目前不是概念審核階段。");
         }
         {
-          const generated = conceptMapSchema.safeParse(
-            currentArtifactData(view, "ai_concept_map", [
-              "generated_concept_map",
-              "ai_concept_map",
-            ]),
-          );
+          const generatedArtifact = view.artifacts.find(item => item.stageId === "ai_concept_map" && item.type === "generated_concept_map")
+            ?? view.artifacts.find(item => item.stageId === "ai_concept_map" && item.type === "ai_concept_map");
+          const generated = conceptMapSchema.safeParse(generatedArtifact?.data);
           if (!generated.success) {
             throw new ApiError(
               409,
@@ -259,18 +259,29 @@ export async function POST(request: Request) {
               "請先產生 AI 概念圖建議後再審核。",
             );
           }
+          const hasEnrichment = [...generated.data.nodes, ...generated.data.edges].some(item => item.enrichment);
+          if ((hasEnrichment || body.sourceArtifactId) && body.sourceArtifactId !== generatedArtifact!.id) {
+            throw new ApiError(409, "CONCEPT_MAP_CHANGED", "概念圖建議已更新，請重新整理並確認目前這一版內容。");
+          }
           let review: ReturnType<typeof resolveConceptReview>;
           try {
-            review = resolveConceptReview(generated.data, body.rejectedIds);
+            review = resolveConceptReview(generated.data, body.rejectedIds, body.confirmedEnrichmentIds);
           } catch (error) {
             asReviewError(error);
           }
-          await replaceArtifactData({
+          await replaceArtifactsAtomically([{
             sessionId: claims.sessionId,
             stageId: "ai_concept_map",
             type: "concept_decisions",
-            data: review,
-          });
+            data: { ...review, ...(hasEnrichment ? { sourceArtifactId: generatedArtifact!.id } : {}) },
+          }], { assertCurrent: async tx => {
+            const outputs = await tx.query.artifacts.findMany({
+              where: (row, { and, eq, inArray, isNull }) => and(eq(row.sessionId, claims.sessionId), eq(row.stageId, "ai_concept_map"), inArray(row.type, ["generated_concept_map", "ai_concept_map"]), isNull(row.supersededAt)),
+              orderBy: (row, { desc }) => [desc(row.createdAt)],
+            });
+            const latest = outputs.find(item => item.type === "generated_concept_map") ?? outputs.find(item => item.type === "ai_concept_map");
+            if (latest?.id !== generatedArtifact!.id) throw new ApiError(409, "CONCEPT_MAP_CHANGED", "概念圖建議已更新，請重新整理並再次確認。");
+          } });
           await saveMessage({
             sessionId: claims.sessionId,
             stageId: "ai_concept_map",
@@ -279,6 +290,8 @@ export async function POST(request: Request) {
             content: {
               accepted: review.accepted,
               rejectedIds: review.rejectedIds,
+              ...(review.confirmedEnrichmentIds ? { confirmedEnrichmentIds: review.confirmedEnrichmentIds } : {}),
+              ...(hasEnrichment ? { sourceArtifactId: generatedArtifact!.id } : {}),
             },
           });
         }

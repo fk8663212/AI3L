@@ -3,6 +3,7 @@ import { conceptMapSchema } from "@/lib/ai/schemas";
 import { speakingOutlineSchema, validSpeakingOutline } from "@/lib/domain/speaking-outline";
 import { speakingTemplateSchema, type SpeakingTemplate } from "@/lib/domain/speaking-templates";
 import { POSTTEST_REFERENCE_INSTRUCTION } from "@/lib/domain/stages";
+import { conceptMapWithoutEnrichmentNotes } from "@/lib/domain/concept-enrichment";
 
 export const POSTTEST_REFERENCE_POLICY = "concept-map-only-v1";
 
@@ -66,7 +67,7 @@ export function posttestReferenceFromArtifacts(
     policyVersion: POSTTEST_REFERENCE_POLICY,
     mapArtifactId: decisions.id,
     outlineArtifactId: plan ? saved!.id : null,
-    map: parsed.data,
+    map: conceptMapWithoutEnrichmentNotes(parsed.data),
     // Keep only the student's final sections, not generatedSections or hints.
     outline: plan ? { sections: plan.sections } : null,
     ...(template ? { speakingTemplate: template } : {}),

@@ -2,6 +2,7 @@
 
 import { PosttestReferencePanel, SpeakingOutlinePanel } from "@/components/student/speaking-outline-panel";
 import { validSpeakingOutline } from "@/lib/domain/speaking-outline";
+import { CONCEPT_ENRICHMENT_POLICY } from "@/lib/domain/concept-enrichment";
 
 import {
   Check,
@@ -346,10 +347,11 @@ function SelfConceptPanel({ view, onSaved }: { view: SessionView; onSaved: (view
   const saved = artifact(view, "self_concept_map", "image");
   return (
     <div className="stage-panel">
+      <p className="panel-hint">這張圖先由你自行繪製。上傳後，AI 會在後續概念擴充階段讀取它，與你保留的情境詞彙及活動主題一起整合；AI 新增的內容仍由你篩選。</p>
       {!saved ? (
         <>
           <p className="panel-hint">
-            先在紙上畫：中間寫主題，周圍寫相關的英文詞，用箭頭連起來並在箭頭旁寫關係詞（例如 eat、go to）。畫好後拍照上傳。這一步不使用 AI。
+            先自行在紙上畫：中間寫主題，周圍寫相關的英文詞，用箭頭連起來並在箭頭旁寫關係詞（例如 eat、go to）。畫好後拍照上傳；後續 AI 會讀取這張概念圖，與情境詞彙、活動主題一起整合擴充。
           </p>
           <ImageUploader sessionId={view.session.id} stage="self_concept_map" onSaved={onSaved} />
         </>
@@ -707,17 +709,31 @@ function AIConceptPanel({
     !("labelEn" in item) && (removed.has(item.from) || removed.has(item.to));
   const undecided = aiItems.filter((item) => !choices[item.id] && !orphaned(item)).length;
   const locked = reviewed && !editing;
+  const preview = locked && reviewedMap.success ? reviewedMap.data : { nodes: keptNodes, edges: keptEdges };
 
   return (
     <div className="stage-panel panel-columns concept-review-panel">
       <div className="panel-column concept-review-preview">
       <StepHeading step={1} title="比較 AI 的擴充概念圖" done />
-      <ConceptMapCard map={{ nodes: keptNodes, edges: keptEdges }} title="擴充概念圖（預覽你的選擇）" />
+      <ConceptMapCard map={preview} title="擴充概念圖（預覽你的選擇）" />
       </div>
 
       <div className="panel-column concept-review-decisions">
       <StepHeading step={2} title="審核 AI 新增的概念與關係" done={reviewed} />
       <p className="panel-hint">逐項保留或移除，概念圖會同步更新。藍色是你原有的，橘色是 AI 新增的；移除概念時，相連關係也會一起移除。確認後，可在下方步驟 3 直接拖曳概念、修改關係詞或連接概念。</p>
+      {aiItems.some(item => item.enrichment) ? (
+        <p className="info-banner">「背景補述」是 AI 依活動主題與簡介聯想到的可能內容，不代表你真的做過。請確認是否符合你的經驗或想表達的內容，再決定保留或移除。</p>
+      ) : null}
+      <div className="stage-panel-row">
+        <button className="button secondary" type="button" disabled={background.waiting}
+          onClick={async () => {
+            if (!window.confirm("會重新讀取概念圖、活動主題與簡介，產生新的概念圖和補述。新圖需要重新篩選；內容變更時，段落與提示也需重新建立。舊資料仍保留在歷程中。要繼續嗎？")) return;
+            await background.request();
+          }}>
+          重新生成概念圖與補述
+        </button>
+        {output?.data.enrichmentPolicy !== CONCEPT_ENRICHMENT_POLICY ? <small className="panel-hint">這是先前產生的圖，重新生成可取得依活動背景提出的補述建議。</small> : null}
+      </div>
       <div className="review-list" tabIndex={0} role="region" aria-label="AI 新增項目審核清單">
         {aiItems.map((item) => {
           const isNode = "labelEn" in item;
@@ -730,12 +746,18 @@ function AIConceptPanel({
                   {isNode ? `${item.labelEn} · ${item.labelZh}` : `${nodeLabel(item.from)} — ${item.relationEn} → ${nodeLabel(item.to)}`}
                 </strong>
                 <small>
-                  {isNode
+                  {item.enrichment ? "AI 背景知識補述（非原圖內容）" : isNode
                     ? "AI 新增的概念"
                     : followsNode
                       ? "相連的概念已移除，這個關係也一起移除"
                       : `AI 新增的關係（${item.relationZh}）`}
                 </small>
+                {item.enrichment ? (
+                  <div className="review-enrichment-note">
+                    <span>{item.enrichment.reasonZh}</span>
+                    <strong>{item.enrichment.questionZh}</strong>
+                  </div>
+                ) : null}
               </div>
               <div className="decision-group" role="group" aria-label="保留或移除">
                 {(["keep", "remove"] as const).map((value) => (
@@ -785,7 +807,8 @@ function AIConceptPanel({
             const rejectedIds = aiItems
               .filter((item) => removed.has(item.id) || orphaned(item))
               .map((item) => item.id);
-            const result = await perform({ action: "review_concepts", rejectedIds });
+            const confirmedEnrichmentIds = aiItems.filter(item => item.enrichment && choices[item.id] === "keep" && !orphaned(item)).map(item => item.id);
+            const result = await perform({ action: "review_concepts", rejectedIds, confirmedEnrichmentIds, sourceArtifactId: output!.id });
             if (result) setEditing(false);
           }}
         >
@@ -1188,7 +1211,7 @@ function StagePanel({
     case "image_analysis":
       return <ImageAnalysisPanel view={view} perform={perform} onSaved={onSaved} />;
     case "ai_concept_map":
-      return <AIConceptPanel view={view} perform={perform} onSaved={onSaved} />;
+      return <AIConceptPanel key={artifact(view, "ai_concept_map", "generated_concept_map")?.id ?? artifact(view, "ai_concept_map", "ai_concept_map")?.id ?? "waiting"} view={view} perform={perform} onSaved={onSaved} />;
     case "sentence_scaffold":
       return <SentencePanel view={view} perform={perform} onSaved={onSaved} />;
   }

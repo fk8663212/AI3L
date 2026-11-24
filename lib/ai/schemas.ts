@@ -42,12 +42,23 @@ export type ImageAnalysis = z.infer<typeof imageAnalysisSchema>;
 export type ImageAnnotation = z.infer<typeof imageAnnotationSchema>;
 export type AnnotatedImage = z.infer<typeof annotatedImageSchema>;
 
+export const knowledgeEnrichmentSchema = z.object({
+  kind: z.literal("background_knowledge"),
+  reasonZh: z.string().trim().min(1).max(240),
+  questionZh: z.string().trim().min(1).max(180),
+});
+const storedEnrichmentSchema = knowledgeEnrichmentSchema.extend({
+  /** Set by the review service, never by the model or an editor payload. */
+  confirmedByStudent: z.boolean().optional(),
+});
+
 export const conceptNodeSchema = z.object({
   id: z.string(),
   labelEn: z.string().min(1),
   labelZh: z.string().min(1),
   category: z.enum(["person", "object", "event", "place", "feeling", "quality"]),
   source: z.enum(["student", "ai"]),
+  enrichment: storedEnrichmentSchema.nullish(),
 });
 
 export const conceptEdgeSchema = z.object({
@@ -57,6 +68,7 @@ export const conceptEdgeSchema = z.object({
   relationEn: z.string().min(1),
   relationZh: z.string().min(1),
   source: z.enum(["student", "ai"]),
+  enrichment: storedEnrichmentSchema.nullish(),
 });
 
 /**
@@ -82,6 +94,28 @@ export const conceptMapSchema = z.object({
 export const generatedConceptMapSchema = z.object({
   nodes: z.array(conceptNodeSchema).min(3).max(20),
   edges: z.array(conceptEdgeSchema).min(2).max(40),
+});
+
+/** New model responses explicitly distinguish inferred knowledge from the inputs. */
+export const enrichedConceptMapGenerationSchema = generatedConceptMapSchema.extend({
+  nodes: z.array(conceptNodeSchema.extend({ enrichment: knowledgeEnrichmentSchema.nullable() })).min(3).max(20),
+  edges: z.array(conceptEdgeSchema.extend({ enrichment: knowledgeEnrichmentSchema.nullable() })).min(2).max(40),
+}).superRefine((map, ctx) => {
+  const ids = new Set<string>();
+  for (const [type, items] of [["nodes", map.nodes], ["edges", map.edges]] as const) {
+    items.forEach((item, index) => {
+      if (ids.has(item.id)) ctx.addIssue({ code: "custom", path: [type, index, "id"], message: "概念與關係的 id 不可重複。" });
+      ids.add(item.id);
+      if (item.enrichment && item.source !== "ai") ctx.addIssue({ code: "custom", path: [type, index, "source"], message: "背景補述必須標示為 AI 新增。" });
+    });
+  }
+  const nodes = new Map(map.nodes.map(node => [node.id, node]));
+  map.edges.forEach((edge, index) => {
+    if (!nodes.has(edge.from) || !nodes.has(edge.to)) ctx.addIssue({ code: "custom", path: ["edges", index], message: "關係必須連到輸出的概念。" });
+    if ((nodes.get(edge.from)?.enrichment || nodes.get(edge.to)?.enrichment) && !edge.enrichment) {
+      ctx.addIssue({ code: "custom", path: ["edges", index, "enrichment"], message: "連到背景補述的關係也必須標記為待確認建議。" });
+    }
+  });
 });
 
 export type ConceptMap = z.infer<typeof conceptMapSchema>;
