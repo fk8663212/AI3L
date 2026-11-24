@@ -1,6 +1,7 @@
 import { MacroMicroCard } from "@/components/student/speaking-outline-panel";
 import { outlineSourceMap, validSpeakingOutline } from "@/lib/domain/speaking-outline";
 import { parseSpeakingTemplate } from "@/lib/domain/speaking-templates";
+import { posttestSupportSchema } from "@/lib/domain/posttest-reference";
 import { Lock, ShieldCheck } from "lucide-react";
 import {
   annotatedImageSchema,
@@ -73,6 +74,7 @@ function JsonFallback({ value }: { value: Record<string, unknown> }) {
 }
 
 function ReadonlyMessageContent({ message }: { message: ReadonlyMessage }) {
+  if (message.kind === "posttest_reference_navigation") return <p>錄音參考圖：{String(message.content.sectionTitle ?? "完整概念圖")} · {message.content.mode === "single" ? "單層概念圖" : "Macro／Micro 雙層圖"} · 無句首與示範句</p>;
   if (message.kind === "speaking_navigation") return <p>瀏覽段落：{String(message.content.sectionTitle ?? message.content.sectionId)} · {message.content.mode === "single" ? "單層概念圖" : "Macro／Micro 雙層圖"} · {message.content.hintsVisible ? "顯示英文提示" : "未顯示英文提示"}</p>;
   if (["speaking_outline", "speaking_outline_edit"].includes(message.kind) && Array.isArray(message.content.sections)) return <ol>{message.content.sections.map((section: { id: string; titleZh: string; titleEn: string }) => <li key={section.id}>{section.titleZh} · {section.titleEn}</li>)}</ol>;
   if (message.kind === "labels") {
@@ -181,6 +183,7 @@ function AudioArtifact({
     sizeBytes: number | null;
   };
 }) {
+  const support = posttestSupportSchema.safeParse(artifact.data.posttestSupport);
   return (
     <div className="session-audio-record">
       <dl>
@@ -196,6 +199,14 @@ function AudioArtifact({
           <dt>大小</dt>
           <dd>{formatBytes(artifact.sizeBytes)}</dd>
         </div>
+        {support.success ? (
+          <div>
+            <dt>錄音參考</dt>
+            <dd>{support.data.reference
+              ? "最後確認的概念圖（無句首與示範句）"
+              : "沒有可用的概念圖"}</dd>
+          </div>
+        ) : null}
       </dl>
       {artifact.downloadUrl ? (
         <>
@@ -286,6 +297,7 @@ function artifactTitle(type: string): string {
       sentence_scaffold: "句子鷹架",
       speaking_outline: "Macro／Micro 講述架構",
       speaking_progress: "講述段落與提示瀏覽紀錄",
+      posttest_reference_progress: "最後錄音的概念圖瀏覽紀錄",
     }[type] ?? type
   );
 }
@@ -315,6 +327,7 @@ function ArtifactBody({
     }
   }
   if (artifact.type === "speaking_progress") return <p>段落：{String(artifact.data.sectionTitle ?? artifact.data.sectionId)} · {artifact.data.mode === "single" ? "單層概念圖" : "Macro／Micro 雙層圖"} · {artifact.data.hintsVisible ? "已顯示英文提示" : "未顯示英文提示"}</p>;
+  if (artifact.type === "posttest_reference_progress") return <p>錄音參考圖：{String(artifact.data.sectionTitle ?? "完整概念圖")} · {artifact.data.mode === "single" ? "單層概念圖" : "Macro／Micro 雙層圖"} · 無句首與示範句</p>;
   if (artifact.type === "audio") return <AudioArtifact artifact={artifact} />;
   if (artifact.type === "transcript") {
     return <TranscriptArtifact data={artifact.data} />;

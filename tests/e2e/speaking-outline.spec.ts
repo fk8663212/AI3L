@@ -224,7 +224,7 @@ test.describe("Macro / Micro in the learning workspace", () => {
       )
       .toBe(1);
   });
-  test("switches paragraph subgraphs and hints together, persists navigation and conceals them in the posttest", async ({
+  test("switches paragraph subgraphs and hints together, persists navigation and keeps only the map in the posttest", async ({
     page,
     context,
   }, testInfo) => {
@@ -297,7 +297,8 @@ test.describe("Macro / Micro in the learning workspace", () => {
     await page.reload();
     await expect(
       page.getByRole("button", { name: "Macro／Micro 雙層圖", exact: true }),
-    ).toHaveCount(0);
+    ).toBeVisible();
+    await expect(page.locator(".paragraph-hints")).toHaveCount(0);
     const response = await context.request.get("/api/student/session");
     expect(
       (await response.json()).data.artifacts.every(

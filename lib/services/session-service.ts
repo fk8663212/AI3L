@@ -25,6 +25,7 @@ import {
   type TaskConfig,
 } from "@/lib/domain/default-task";
 import { withRecordingAnalysisStatus } from "@/lib/domain/recordings";
+import { POSTTEST_REFERENCE_POLICY, posttestInstructionForReference, posttestReferenceFromArtifacts, type PosttestReference } from "@/lib/domain/posttest-reference";
 import { ApiError } from "@/lib/security/request";
 
 export type ArtifactView = {
@@ -77,6 +78,8 @@ export type SessionView = {
   artifacts: ArtifactView[];
   gate: ReturnType<typeof evaluateStageGate>;
   concealPriorStages: boolean;
+  /** Only the final confirmed map/sections, with no prior language scaffolds. */
+  posttestReference?: PosttestReference | null;
   /** Latest AI run per background stage, so stages 4 and 5 can wait for it. */
   aiStatus: Record<BackgroundAIStage, AIRunStatus>;
 };
@@ -329,8 +332,8 @@ export async function getSessionView(
   );
   const concealPriorStages =
     found.session.currentStage === "posttest" && !found.session.completedAt;
-  // During the posttest, prior hints are withheld from the response itself,
-  // not just hidden in the UI, so they cannot be read from the network tab.
+  // Earlier stages stay concealed. Only a validated map/section projection is
+  // returned separately; earlier sentences and AI hints never enter it.
   const visibleStageIds = new Set<StageId>(
     concealPriorStages
       ? [found.session.currentStage]
@@ -342,6 +345,9 @@ export async function getSessionView(
     found.task.config.speakingTemplate,
   );
   const normalizedConfig = normalizeTaskConfig(found.task.config);
+  const posttestReference = concealPriorStages && found.session.consentedAt
+    ? posttestReferenceFromArtifacts(artifactRows, normalizedConfig.speakingTemplate)
+    : null;
   const backgroundStatus = (stage: BackgroundAIStage) =>
     aiRunStatusOf(
       runRows.find((run) => run.stageId === stage),
@@ -375,7 +381,13 @@ export async function getSessionView(
         targetLanguage: normalizedConfig.targetLanguage,
         consentText: normalizedConfig.consentText,
         retentionDays: normalizedConfig.retentionDays,
-        stageConfig: normalizedConfig.stageConfig,
+        stageConfig: posttestReference ? {
+          ...normalizedConfig.stageConfig,
+          posttest: {
+            ...normalizedConfig.stageConfig.posttest,
+            instruction: posttestInstructionForReference(normalizedConfig.stageConfig.posttest.instruction),
+          },
+        } : normalizedConfig.stageConfig,
       },
     },
     stages: STAGES.map((stage, index) => ({
@@ -425,6 +437,7 @@ export async function getSessionView(
       })),
     gate: evaluateStageGate(found.session.currentStage, evidence),
     concealPriorStages,
+    posttestReference,
     aiStatus: {
       image_analysis: backgroundStatus("image_analysis"),
       ai_concept_map: backgroundStatus("ai_concept_map"),
@@ -566,6 +579,23 @@ export async function saveRecordingAudio(input: {
     });
     await assertNoActiveArtifact(tx, input.sessionId, input.stageId, "audio");
 
+    let data = input.audio.data;
+    if (input.stageId === "posttest") {
+      const rows = await tx.query.artifacts.findMany({
+        where: eq(artifacts.sessionId, input.sessionId),
+        orderBy: [desc(artifacts.createdAt)],
+      });
+      const session = await tx.query.studentSessions.findFirst({ where: eq(studentSessions.id, input.sessionId) });
+      const task = await tx.query.tasks.findFirst({ where: eq(tasks.id, session!.taskId) });
+      data = {
+        ...data,
+        posttestSupport: {
+          policyVersion: POSTTEST_REFERENCE_POLICY,
+          reference: posttestReferenceFromArtifacts(rows, task?.config.speakingTemplate),
+        },
+      };
+    }
+
     const inserted = await tx
       .insert(artifacts)
       .values({
@@ -573,7 +603,7 @@ export async function saveRecordingAudio(input: {
         stageId: input.stageId,
         type: "audio",
         status: "ready",
-        data: withRecordingAnalysisStatus(input.audio.data, "pending", new Date()),
+        data: withRecordingAnalysisStatus(data, "pending", new Date()),
         storageProvider: input.audio.storageProvider ?? "google-drive",
         storageLocator: input.audio.storageLocator,
         mimeType: input.audio.mimeType,
@@ -581,6 +611,57 @@ export async function saveRecordingAudio(input: {
       })
       .returning();
     return inserted[0];
+  });
+}
+
+/** Posttest browsing is allowed; rebuilding or editing the earlier plan is not. */
+export async function recordPosttestReferenceNavigation(
+  sessionId: string,
+  mode: "single" | "macro_micro",
+  sectionId: string | undefined,
+  idempotencyKey: string,
+) {
+  return getDb().transaction(async tx => {
+    await assertArtifactWritable(tx, { sessionId, stageId: "posttest", type: "posttest_reference_progress" });
+    const session = await tx.query.studentSessions.findFirst({ where: eq(studentSessions.id, sessionId) });
+    if (!session?.consentedAt) throw new ApiError(409, "CONSENT_REQUIRED", "請先完成研究同意程序。");
+    if (session.completedAt) throw new ApiError(409, "SESSION_COMPLETED", "錄音已提交，無法再更新瀏覽紀錄。");
+    const duplicate = await tx.query.messages.findFirst({
+      columns: { id: true },
+      where: and(eq(messages.sessionId, sessionId), eq(messages.idempotencyKey, idempotencyKey)),
+    });
+    if (duplicate) return;
+
+    const task = await tx.query.tasks.findFirst({ where: eq(tasks.id, session.taskId) });
+    const rows = await tx.query.artifacts.findMany({
+      where: eq(artifacts.sessionId, sessionId),
+      orderBy: [desc(artifacts.createdAt)],
+    });
+    const reference = posttestReferenceFromArtifacts(rows, task?.config.speakingTemplate);
+    if (!reference) throw new ApiError(409, "REFERENCE_UNAVAILABLE", "目前沒有可參考的已確認概念圖。");
+    const section = reference.outline?.sections.find(item => item.id === sectionId);
+    if ((sectionId && !section) || (mode === "macro_micro" && !section)) {
+      throw new ApiError(400, "INVALID_SECTION", "找不到這個講述段落。");
+    }
+    const data = {
+      policyVersion: POSTTEST_REFERENCE_POLICY,
+      mapArtifactId: reference.mapArtifactId,
+      outlineArtifactId: reference.outlineArtifactId,
+      mode,
+      sectionId: section?.id ?? null,
+      sectionTitle: section?.titleZh ?? null,
+      mapReferenceVisible: true,
+      hintsVisible: false,
+    };
+    const now = new Date();
+    await tx.update(artifacts).set({ supersededAt: now, updatedAt: now }).where(and(
+      eq(artifacts.sessionId, sessionId), eq(artifacts.stageId, "posttest"),
+      eq(artifacts.type, "posttest_reference_progress"), isNull(artifacts.supersededAt),
+    ));
+    await insertArtifact(tx, { sessionId, stageId: "posttest", type: "posttest_reference_progress", data });
+    await tx.insert(messages).values({
+      sessionId, stageId: "posttest", role: "student", kind: "posttest_reference_navigation", content: data, idempotencyKey,
+    });
   });
 }
 

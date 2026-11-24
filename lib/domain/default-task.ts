@@ -1,4 +1,4 @@
-import type { StageId } from "@/lib/domain/stages";
+import { POSTTEST_REFERENCE_INSTRUCTION, type StageId } from "@/lib/domain/stages";
 import type { SpeakingTemplate } from "@/lib/domain/speaking-templates";
 import {
   DEFAULT_TASK_PROMPT_CONFIG,
@@ -63,8 +63,7 @@ export const DEFAULT_TASK_CONFIG: TaskConfig = {
       maximumRecordingSeconds: 120,
     },
     posttest: {
-      instruction:
-        "現在不會顯示先前的提示。請再次獨立用英文描述你的大稻埕年貨市場經驗。",
+      instruction: POSTTEST_REFERENCE_INSTRUCTION,
       minimumRecordingSeconds: 30,
       maximumRecordingSeconds: 120,
     },

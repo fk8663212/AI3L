@@ -32,6 +32,7 @@ import {
   getSessionView,
   recordConsent,
   replaceArtifactData,
+  saveRecordingAudio,
   startStudentSession,
 } from "@/lib/services/session-service";
 import { exportResearchData } from "@/lib/services/admin-service";
@@ -550,8 +551,11 @@ describe("Macro / Micro in the real student flow", () => {
     ).toBe(400);
   });
 
-  it("hides the plan and all hints in the posttest and rejects writes there", async () => {
+  it("exposes only the final confirmed map and edited sections in the posttest, and rejects content writes", async () => {
     await act({ action: "build_speaking_outline" });
+    const edited = [...sections].reverse().map((section, index) => ({ ...section, titleZh: `最後順序 ${index + 1}` }));
+    await act({ action: "save_speaking_outline", sections: edited });
+    await getDb().insert(artifacts).values({ sessionId: auth.id!, stageId: "sentence_scaffold", type: "sentence_scaffold", data: { secret: "NEVER_REVEAL_SENTENCE_START" } });
     await getDb()
       .update(studentSessions)
       .set({ currentStage: "posttest" })
@@ -561,6 +565,11 @@ describe("Macro / Micro in the real student flow", () => {
         (item) => item.type === "speaking_outline",
       ),
     ).toBe(false);
+    const reference = (await current()).posttestReference!;
+    expect(reference.map).toEqual(map);
+    expect(reference.outline?.sections).toEqual(edited);
+    expect(JSON.stringify(await current())).not.toContain("NEVER_REVEAL_SENTENCE_START");
+    expect(reference).not.toHaveProperty("paragraphHints");
     expect((await act({ action: "build_speaking_outline" })).status).toBe(409);
     expect(
       (await act({ action: "save_speaking_outline", sections })).status,
@@ -576,8 +585,65 @@ describe("Macro / Micro in the real student flow", () => {
         })
       ).status,
     ).toBe(409);
+    ai.generate.mockClear();
+    const firstKey = randomUUID();
+    const browse = (sectionId: string, idempotencyKey = randomUUID()) => act({
+      action: "posttest_reference_navigation", sectionId, mode: "macro_micro", idempotencyKey,
+      hintsVisible: true,
+    });
+    expect((await browse("story", firstKey)).status).toBe(200);
+    expect((await browse("details")).status).toBe(200);
+    expect((await browse("story", firstKey)).status).toBe(200);
+    expect((await browse("foreign-section")).status).toBe(400);
+    const progress = (await current()).artifacts.find(item => item.type === "posttest_reference_progress")!;
+    expect(progress.data).toMatchObject({ sectionId: "details", hintsVisible: false, mapReferenceVisible: true, mapArtifactId: reference.mapArtifactId, outlineArtifactId: reference.outlineArtifactId });
+    expect((await current()).messages.filter(item => item.kind === "posttest_reference_navigation")).toHaveLength(2);
+    expect(ai.generate).not.toHaveBeenCalled();
+    await getDb().update(studentSessions).set({ completedAt: new Date() }).where(eq(studentSessions.id, auth.id!));
+    expect((await browse("story")).error.code).toBe("SESSION_COMPLETED");
     auth.id = null;
     expect((await act({ action: "build_speaking_outline" })).status).toBe(401);
+  });
+
+  it("falls back to the confirmed single map for a stale outline, without generating new content", async () => {
+    expect((await act({ action: "posttest_reference_navigation", mode: "single", idempotencyKey: randomUUID() })).error.code).toBe("STAGE_LOCKED");
+    await act({ action: "build_speaking_outline" });
+    await getDb().update(studentSessions).set({ currentStage: "posttest" }).where(eq(studentSessions.id, auth.id!));
+    const decisions = await getDb().query.artifacts.findFirst({ where: and(eq(artifacts.sessionId, auth.id!), eq(artifacts.type, "concept_decisions"), isNull(artifacts.supersededAt)) });
+    const changed = { ...map, nodes: map.nodes.map((node, index) => index ? node : { ...node, labelEn: "final edited concept" }) };
+    await getDb().update(artifacts).set({ data: { ...decisions!.data, accepted: changed } }).where(eq(artifacts.id, decisions!.id));
+    ai.generate.mockClear();
+    expect((await current()).posttestReference).toMatchObject({ map: changed, outline: null, outlineArtifactId: null });
+    expect((await act({ action: "posttest_reference_navigation", mode: "single", idempotencyKey: randomUUID() })).status).toBe(200);
+    expect((await act({ action: "posttest_reference_navigation", mode: "macro_micro", sectionId: "story", idempotencyKey: randomUUID() })).status).toBe(400);
+    await getDb().update(artifacts).set({ data: { ...decisions!.data, accepted: changed, pending: [{ id: "not-reviewed" }] } }).where(eq(artifacts.id, decisions!.id));
+    expect((await current()).posttestReference).toBeNull();
+    expect((await act({ action: "posttest_reference_navigation", mode: "single", idempotencyKey: randomUUID() })).error.code).toBe("REFERENCE_UNAVAILABLE");
+    expect(ai.generate).not.toHaveBeenCalled();
+  });
+
+  it("freezes the recording reference in the saved audio and research export", async () => {
+    await act({ action: "build_speaking_outline" });
+    await getDb().update(studentSessions).set({ currentStage: "posttest" }).where(eq(studentSessions.id, auth.id!));
+    const reference = (await current()).posttestReference;
+    const audio = await saveRecordingAudio({ sessionId: auth.id!, stageId: "posttest", audio: {
+      storageProvider: "local", storageLocator: "local://test/posttest-reference.webm", mimeType: "audio/webm", sizeBytes: 100,
+      data: { durationSeconds: 35, posttestSupport: { reference: "untrusted client value" } },
+    } });
+    expect(audio.data.posttestSupport).toEqual({ policyVersion: "concept-map-only-v1", reference });
+    const decisions = await getDb().query.artifacts.findFirst({ where: and(eq(artifacts.id, reference!.mapArtifactId)) });
+    await getDb().update(artifacts).set({ data: { ...decisions!.data, accepted: { ...map, nodes: [] } } }).where(eq(artifacts.id, decisions!.id));
+    expect((await current()).posttestReference).toEqual(reference);
+    expect((await exportResearchData(taskId)).artifacts.find(item => item.id === audio.id)!.data.posttestSupport).toEqual(audio.data.posttestSupport);
+  });
+
+  it("keeps the reference condition of older saved posttests unchanged", async () => {
+    await act({ action: "build_speaking_outline" });
+    await getDb().update(studentSessions).set({ currentStage: "posttest" }).where(eq(studentSessions.id, auth.id!));
+    await getDb().insert(artifacts).values({ sessionId: auth.id!, stageId: "posttest", type: "audio", data: { durationSeconds: 30 } });
+    expect((await current()).posttestReference).toBeNull();
+    expect((await current()).artifacts.find(item => item.type === "audio")!.data).not.toHaveProperty("posttestSupport");
+    expect((await act({ action: "posttest_reference_navigation", mode: "single", idempotencyKey: randomUUID() })).error.code).toBe("REFERENCE_UNAVAILABLE");
   });
 
   it("discards an AI outline when its source map changes during generation", async () => {

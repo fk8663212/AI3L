@@ -422,7 +422,8 @@ test.describe("chronological speaking template", () => {
       [sessionId],
     );
     await page.goto("/learn");
-    await expect(page.locator(".speaking-outline")).toHaveCount(0);
+    await expect(page.locator(".posttest-reference .speaking-outline")).toBeVisible();
+    await expect(page.locator(".paragraph-hints")).toHaveCount(0);
     await expect(
       page.getByText("Next, we attach …", { exact: true }),
     ).toHaveCount(0);

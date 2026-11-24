@@ -73,7 +73,7 @@ test.describe("cause and effect / problem-solution template", () => {
     { organization: "problem_solution", label: "問題與解決", map: problemSolutionMap, sections: problemSolutionSections, hints: problemSolutionHints, originals: problemSolutionOriginals },
     { organization: "causal", label: "原因與影響", map: causalMap, sections: causalSections, hints: problemSolutionHints.slice(0, 2), originals: ["There is mixed waste in our classroom.", "The labels are unclear.", "Unclear labels contribute to mixed waste."] },
   ]) {
-    test(`student switches ${example.organization} subgraphs and hints, saves edits and has no posttest cues`, async ({ context, page, baseURL }, testInfo) => {
+    test(`student switches ${example.organization} subgraphs and hints, saves edits and uses only the map in the posttest`, async ({ context, page, baseURL }, testInfo) => {
       const { map, sections, hints, originals, organization } = example;
       const taskId = (await db.query(
         "insert into tasks(slug,title,description,status,provider,model_id,config,published_at) values($1,'Classroom sorting','Synthetic problem analysis only','published','google','synthetic-test',$2,now()) returning id",
@@ -154,7 +154,8 @@ test.describe("cause and effect / problem-solution template", () => {
       await teacherPage.close();
       await db.query("update student_sessions set current_stage='posttest' where id=$1", [sessionId]);
       await page.goto("/learn");
-      await expect(page.locator(".speaking-outline")).toHaveCount(0);
+      await expect(page.locator(".posttest-reference .speaking-outline")).toBeVisible();
+      await expect(page.locator(".paragraph-hints")).toHaveCount(0);
       await expect(page.getByText("請補充成因的觀察依據。", { exact: true })).toHaveCount(0);
       await expect(page.getByText("Because the labels are unclear, …", { exact: true })).toHaveCount(0);
       const response = await page.request.post("/api/student/actions", { data: { action: "build_speaking_outline" } });

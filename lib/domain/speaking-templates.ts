@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { STAGES, type StageId } from "@/lib/domain/stages";
+import { POSTTEST_REFERENCE_INSTRUCTION, STAGES, type StageId } from "@/lib/domain/stages";
 import type { TaskConfig } from "@/lib/domain/default-task";
 
 export const speakingTemplateIdSchema = z.enum(["spatial", "chronological", "problem_solution"]);
@@ -75,8 +75,7 @@ export function speakingTemplateInstructions(
       "比較 AI 概念圖與自己的原圖，只保留有依據的概念與關係；確認後建立因果／問題解決講述架構，檢查原因與解法的依據，並區分預期成效與已觀察結果。",
     sentence_scaffold:
       "先寫下至少三個自己的英文句子，再依目前的講述架構取得分級提示，最後完成一段口說練習。",
-    posttest:
-      "現在不會顯示先前的提示。請再次獨立用英文說明相同任務中你觀察到的情況與自己的想法。",
+    posttest: POSTTEST_REFERENCE_INSTRUCTION,
   };
   const temporal = id === "chronological";
   return {
@@ -97,9 +96,7 @@ export function speakingTemplateInstructions(
       : "比較 AI 概念圖與自己的原圖，只保留符合經驗的概念與關係；確認後建立空間／導覽講述架構。",
     sentence_scaffold:
       "先寫下至少三個自己的英文句子，再依目前的講述架構取得分級提示，最後完成一段口說練習。",
-    posttest: temporal
-      ? "現在不會顯示先前的提示。請再次獨立用英文說明相同任務中的活動、製作經驗或事件。"
-      : "現在不會顯示先前的提示。請再次獨立用英文描述相同任務的場景與經驗。",
+    posttest: POSTTEST_REFERENCE_INSTRUCTION,
   };
 }
 

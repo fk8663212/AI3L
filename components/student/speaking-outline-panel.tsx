@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -51,7 +51,9 @@ export function MacroMicroCard({
   speakingTemplate,
   informationGaps = [],
   organization,
+  showLanguageHints = true,
 }: {
+  showLanguageHints?: boolean;
   speakingTemplate?: SpeakingTemplate;
   informationGaps?: string[];
   organization?: string;
@@ -82,7 +84,7 @@ export function MacroMicroCard({
   const submap = microMap(map, section);
   const hint = paragraphHints?.find((item) => item.sectionId === section.id);
   const validation = outlineSchemaForMap(map).safeParse({ sections: draft });
-  const hintsVisible = mode === "macro_micro" && Boolean(hint);
+  const hintsVisible = showLanguageHints && mode === "macro_micro" && Boolean(hint);
   const navigationRef = useRef(onNavigate);
   useEffect(() => {
     navigationRef.current = onNavigate;
@@ -209,7 +211,7 @@ export function MacroMicroCard({
               </li>
             ))}
           </ol>
-          <div className="micro-workspace" data-many={submap.nodes.length > 2}>
+          <div className="micro-workspace" data-many={submap.nodes.length > 2} data-language-hints={showLanguageHints}>
             <div>
               <ConceptMapCard
                 map={submap}
@@ -228,7 +230,7 @@ export function MacroMicroCard({
                 ))}
               </div>
             </div>
-            <aside
+            {showLanguageHints ? <aside
               className="paragraph-hints"
               aria-label="這一段的英文提示"
               aria-live="polite"
@@ -255,7 +257,7 @@ export function MacroMicroCard({
                   先寫下自己的句子並取得提示，這裡就會同步顯示這一段的英文關鍵詞與句首。
                 </p>
               )}
-            </aside>
+            </aside> : null}
           </div>
           <div className="speaking-outline-footer">
             <button
@@ -435,6 +437,66 @@ export function MacroMicroCard({
           )}
         </div>
       ) : null}
+    </section>
+  );
+}
+
+/** The final recording reuses only the confirmed map and final paragraph order. */
+export function PosttestReferencePanel({ view }: { view: SessionView }) {
+  const reference = view.posttestReference;
+  const [trackingError, setTrackingError] = useState("");
+  const navigationQueue = useRef<Promise<void>>(Promise.resolve());
+  const track = useCallback((sectionId: string | undefined, mode: "single" | "macro_micro") => {
+    const body = {
+      action: "posttest_reference_navigation",
+      ...(sectionId ? { sectionId } : {}),
+      mode,
+      idempotencyKey: crypto.randomUUID(),
+    };
+    navigationQueue.current = navigationQueue.current.then(async () => {
+      try {
+        const response = await fetch("/api/student/actions", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!response.ok) throw new Error("Navigation not saved");
+        setTrackingError("");
+      } catch {
+        setTrackingError("概念圖瀏覽紀錄暫時未同步，重新整理後可重試。");
+      }
+    });
+  }, []);
+  const flatReferenceId = reference && !reference.outline ? reference.mapArtifactId : null;
+  useEffect(() => {
+    if (flatReferenceId) track(undefined, "single");
+  }, [flatReferenceId, track]);
+  if (!reference) return null;
+  const progress = view.artifacts.find(item => item.stageId === "posttest"
+    && item.type === "posttest_reference_progress"
+    && item.data.mapArtifactId === reference.mapArtifactId
+    && item.data.outlineArtifactId === reference.outlineArtifactId);
+  return (
+    <section className="posttest-reference" aria-label="最後錄音的概念圖參考">
+      <div className="info-banner">
+        這是你最後確認的概念圖。可切換段落查看細節，錄音時請用自己的句子表達。
+      </div>
+      {trackingError ? <p className="error-banner" role="status">{trackingError}</p> : null}
+      {reference.outline ? (
+        <MacroMicroCard
+          key={`${reference.mapArtifactId}:${reference.outlineArtifactId}`}
+          map={reference.map}
+          outline={reference.outline}
+          speakingTemplate={reference.speakingTemplate}
+          organization={reference.organization}
+          showLanguageHints={false}
+          initialSectionId={typeof progress?.data.sectionId === "string" ? progress.data.sectionId : undefined}
+          initialMode={progress?.data.mode === "single" ? "single" : "macro_micro"}
+          onNavigate={(sectionId, mode) => track(sectionId, mode)}
+        />
+      ) : (
+        <ConceptMapCard map={reference.map} title="我確認後的完整概念圖" />
+      )}
     </section>
   );
 }

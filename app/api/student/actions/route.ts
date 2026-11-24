@@ -35,6 +35,7 @@ import {
   getSessionView,
   type SessionView,
   recordConsent,
+  recordPosttestReferenceNavigation,
   replaceArtifactData,
   saveMessage,
 } from "@/lib/services/session-service";
@@ -73,6 +74,7 @@ const bodySchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("build_speaking_outline") }),
   z.object({ action: z.literal("save_speaking_outline"), sections: z.array(speakingSectionSchema).min(1).max(6) }),
   z.object({ action: z.literal("speaking_navigation"), sectionId: z.string().min(1).max(64), mode: z.enum(["single", "macro_micro"]), hintsVisible: z.boolean().default(false), idempotencyKey: z.string().min(8).max(128) }),
+  z.object({ action: z.literal("posttest_reference_navigation"), sectionId: z.string().min(1).max(64).optional(), mode: z.enum(["single", "macro_micro"]), idempotencyKey: z.string().min(8).max(128) }),
   z.object({ action: z.literal("consent"), accepted: z.literal(true) }),
   z.object({
     action: z.literal("save_labels"),
@@ -166,6 +168,9 @@ export async function POST(request: Request) {
         break;
       case "speaking_navigation":
         await recordSpeakingNavigation(claims.sessionId, body.sectionId, body.mode, body.idempotencyKey, body.hintsVisible);
+        break;
+      case "posttest_reference_navigation":
+        await recordPosttestReferenceNavigation(claims.sessionId, body.mode, body.sectionId, body.idempotencyKey);
         break;
       case "consent":
         await recordConsent(claims.sessionId);

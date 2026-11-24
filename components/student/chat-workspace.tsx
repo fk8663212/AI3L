@@ -1,6 +1,6 @@
 "use client";
 
-import { SpeakingOutlinePanel } from "@/components/student/speaking-outline-panel";
+import { PosttestReferencePanel, SpeakingOutlinePanel } from "@/components/student/speaking-outline-panel";
 import { validSpeakingOutline } from "@/lib/domain/speaking-outline";
 
 import {
@@ -191,7 +191,9 @@ function LearningHistory({ view, open }: { view: SessionView; open: boolean }) {
   if (view.concealPriorStages) {
     return (
       <div className="info-banner history-locked">
-        <Lock size={15} aria-hidden="true" /> 為了測量你獨立說英文的能力，先前的作品與 AI 提示暫時隱藏；完成後測後就會再次顯示。
+        <Lock size={15} aria-hidden="true" /> {view.posttestReference
+          ? "最後確認的概念圖可供錄音參考；先前的練習句子、英文句首與示範句暫時隱藏，請用自己的句子表達。"
+          : "先前的練習句子、英文句首與示範句暫時隱藏，請用自己的句子完成最後一次錄音。"}
       </div>
     );
   }
@@ -1166,11 +1168,18 @@ function StagePanel({
       );
     case "posttest":
       return (
-        <AudioStagePanel
-          view={view}
-          onSaved={onSaved}
-          prompt="最後一次獨立口說，同樣沒有提示。盡量用你這次學到的詞和句子說得更完整。"
-        />
+        <div className="posttest-workspace" data-has-reference={Boolean(view.posttestReference)}>
+          <PosttestReferencePanel view={view} />
+          <div className="posttest-recorder">
+            <AudioStagePanel
+              view={view}
+              onSaved={onSaved}
+              prompt={view.posttestReference
+                ? "錄音時可參考概念圖的段落順序與細節。盡量用自己的句子，把這次學到的內容說完整。"
+                : "目前沒有可參考的已確認概念圖。請依自己的記憶，用這次學到的內容完成最後一次錄音。"}
+            />
+          </div>
+        </div>
       );
     case "visualization":
       return <VisualizationPanel view={view} perform={perform} onSaved={onSaved} />;

@@ -23,6 +23,7 @@ import {
 import { promptAuditCatalog } from "@/lib/ai/prompt-audit";
 import { evaluateStageGate } from "@/lib/domain/stages";
 import { stageChecklist } from "@/lib/domain/stage-checklist";
+import { posttestInstructionForReference } from "@/lib/domain/posttest-reference";
 import { conceptMapOutput } from "./flow/fixtures";
 
 const template = speakingTemplateSelection("chronological")!;
@@ -37,6 +38,24 @@ const sections = [
 ];
 
 describe("speaking templates", () => {
+  it("updates old built-in posttest wording in the view while preserving teacher instructions and durations", () => {
+    for (const instruction of [
+      "現在不會顯示先前的提示。請再次獨立用英文描述你的大稻埕年貨市場經驗。",
+      "現在不會顯示先前的提示。請再次獨立用英文描述相同任務的場景與經驗。",
+      "現在不會顯示先前的提示。請再次獨立用英文說明相同任務中的活動、製作經驗或事件。",
+      "現在不會顯示先前的提示。請再次獨立用英文說明相同任務中你觀察到的情況與自己的想法。",
+    ]) {
+      const config = structuredClone(DEFAULT_TASK_CONFIG);
+      config.stageConfig.posttest = { instruction, minimumRecordingSeconds: 40, maximumRecordingSeconds: 90 };
+      expect(posttestInstructionForReference(instruction)).toBe(DEFAULT_TASK_CONFIG.stageConfig.posttest.instruction);
+      expect(normalizeTaskConfig(config).stageConfig.posttest).toEqual(config.stageConfig.posttest);
+      expect(config.stageConfig.posttest.instruction).toBe(instruction);
+    }
+    const custom = structuredClone(DEFAULT_TASK_CONFIG);
+    custom.stageConfig.posttest.instruction = "請說明你親自完成的炒飯步驟，最後解釋如何判斷熟度。";
+    expect(posttestInstructionForReference(custom.stageConfig.posttest.instruction)).toBe(custom.stageConfig.posttest.instruction);
+    expect(normalizeTaskConfig(custom).stageConfig.posttest).toEqual(custom.stageConfig.posttest);
+  });
   it("leaves unconfigured legacy tasks unclassified", () => {
     const normalized = normalizeTaskConfig(DEFAULT_TASK_CONFIG);
     expect(normalized).not.toHaveProperty("speakingTemplate");

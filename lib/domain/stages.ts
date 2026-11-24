@@ -22,6 +22,9 @@ export const STAGE_STATUSES = [
 
 export type StageStatus = (typeof STAGE_STATUSES)[number];
 
+export const POSTTEST_REFERENCE_INSTRUCTION =
+  "請參考最後確認的概念圖，依 Macro 講述順序切換 Micro 細節，以自己的句子完成最後一次錄音；這裡不提供句首或示範句。";
+
 export type StageDefinition = {
   id: StageId;
   order: number;
@@ -84,8 +87,8 @@ export const STAGES: readonly StageDefinition[] = [
     id: "posttest",
     order: 7,
     shortLabel: "後測",
-    title: "無提示口說後測",
-    description: "撤除所有鷹架後，再次獨立完成口說。",
+    title: "最後一次口說錄音",
+    description: "參考最後確認的 Macro／Micro 概念圖，以自己的句子完成口說。",
     aiEnabled: false,
   },
 ] as const;
